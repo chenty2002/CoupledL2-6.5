@@ -7,6 +7,7 @@ compile:
 	mill -i CoupledL2Assume.compile
 
 verify:
+	./scripts/modify_coupledL2.sh
 	mill -i CoupledL2Assume.test.runMain coupledL2Assume.VerifyTop -td build
 
 auto:
