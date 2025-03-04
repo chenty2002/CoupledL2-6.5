@@ -15,11 +15,11 @@ trait HasChisel6 extends ScalaModule {
 
   def chiselPluginJar: T[Option[PathRef]] = None
 
-  def chiselIvy: Option[Dep] = Some(ivy"org.chipsalliance::chisel:6.5.0")
+  def chiselIvy: Option[Dep] = Some(ivy"org.chipsalliance::chisel:6.6.0")
 
-  def chiselPluginIvy: Option[Dep] = Some(ivy"org.chipsalliance:::chisel-plugin:6.5.0")
+  def chiselPluginIvy: Option[Dep] = Some(ivy"org.chipsalliance:::chisel-plugin:6.6.0")
 
-  override def scalaVersion = "2.13.14"
+  override def scalaVersion = "2.13.15"
 
   override def scalacOptions = super.scalacOptions() ++
     Agg("-language:reflectiveCalls", "-Ymacro-annotations", "-Ytasty-reader")

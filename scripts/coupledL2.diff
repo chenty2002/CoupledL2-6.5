@@ -1,10 +1,10 @@
 diff --git a/src/main/scala/coupledL2/CoupledL2.scala b/src/main/scala/coupledL2/CoupledL2.scala
-index f733f8b..d451ce8 100644
+index 837476b..0f766cf 100644
 --- a/src/main/scala/coupledL2/CoupledL2.scala
 +++ b/src/main/scala/coupledL2/CoupledL2.scala
-@@ -399,26 +399,33 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
-     val hintFire = Wire(Bool())
-     val hintWithData = Wire(Bool())
+@@ -400,26 +400,33 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
+     val releaseSourceD = Wire(Vec(banks, Bool()))
+     val allCanFire = (RegNextN(!hintFire, sliceAhead) && RegNextN(!hintFire, sliceAhead + 1)) || Cat(releaseSourceD).orR
  
 +    def createSlice(enableCHI: Boolean,
 +                    sliceId: Int,
@@ -52,7 +52,7 @@ index f733f8b..d451ce8 100644
          slice.io.in <> in
          if (enableHintGuidedGrant) {
 diff --git a/src/main/scala/coupledL2/tl2tl/MainPipe.scala b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
-index eb588f4..1fcbcce 100644
+index e5a4fd1..6ba6b6e 100644
 --- a/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 +++ b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 @@ -600,8 +600,8 @@ class MainPipe(implicit p: Parameters) extends L2Module with HasPerfEvents {

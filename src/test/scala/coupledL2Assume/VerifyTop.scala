@@ -2,7 +2,8 @@ package coupledL2Assume
 
 import chisel3._
 import chisel3.ltl._
-import circt.stage.ChiselStage
+import circt.stage.{ChiselStage, FirtoolOption}
+import chisel3.stage.ChiselGeneratorAnnotation
 import chisel3.util._
 import chisel3.util.experimental.BoringUtils
 import chiselFv._
@@ -12,7 +13,7 @@ import freechips.rocketchip.tile.MaxHartIdBits
 import freechips.rocketchip.tilelink._
 import org.chipsalliance.cde.config._
 import coupledL2._
-import coupledL2.tl2tl._
+import coupledL2.tl2tl.{Slice => L2Slice, _}
 import coupledL2AsL1._
 import coupledL2FV._
 import utility._
@@ -63,7 +64,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   }
   val l0_nodes = (0 until nrL2).map(i => createClientNode(s"L0_$i", 32))
 
-  val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(baseConfig(1).alter((site, here, up) => {
+  val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
       name = s"L1d_$i",
       ways = 4,
@@ -87,13 +88,14 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     case PerfCounterOptionsKey => PerfCounterOptions(
       here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
       here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
+      XSPerfLevel.withName("VERBOSE"),
       i
     )
   })))
   )
   val l1d_nodes = coupledL2AsL1.map(_.node)
 
-  val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((site, here, up) => {
+  val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
       name = s"l2$i",
       ways = 4,
@@ -116,19 +118,20 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     case PerfCounterOptionsKey => PerfCounterOptions(
       here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
       here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
+      XSPerfLevel.withName("VERBOSE"),
       i
     )
   }))))
   val l2_nodes = coupledL2.map(_.node)
 
-  val l3 = LazyModule(new HuanCun()(baseConfig(1).alter((site, here, up) => {
+  val l3 = LazyModule(new HuanCun()(baseConfig(1).alter((_, here, _) => {
     case HCCacheParamsKey => HCCacheParameters(
       name = "L3",
       level = 3,
       ways = 4,
       sets = 128,
       inclusive = false,
-      clientCaches = (0 until nrL2).map(i =>
+      clientCaches = (0 until nrL2).map(_ =>
         CacheParameters(
           name = s"l2",
           sets = 128,
@@ -147,6 +150,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     case PerfCounterOptionsKey => PerfCounterOptions(
       here(HCCacheParamsKey).enablePerf && !here(HCCacheParamsKey).FPGAPlatform,
       false,
+      XSPerfLevel.withName("VERBOSE"),
       0
     )
   })))
@@ -154,8 +158,8 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val xbar = TLXbar()
   val ram = LazyModule(new TLRAM(AddressSet(0, 0xff_ffffL), beatBytes = 32))
 
-  l0_nodes.zip(l1d_nodes).zipWithIndex map {
-    case ((l0, l1d), i) => l1d := l0
+  l0_nodes.zip(l1d_nodes) map {
+    case (l0, l1d) => l1d := l0
   }
 
   l1d_nodes.zip(l2_nodes).zipWithIndex map {
@@ -178,7 +182,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       TLLogger(s"MEM_L3", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) :=*
       l3.node :=* xbar
 
-  lazy val module = new LazyModuleImp(this) {
+  lazy val module = new LazyModuleImp(this) with Formal {
     val timer = WireDefault(0.U(64.W))
     val logEnable = WireDefault(false.B)
     val clean = WireDefault(false.B)
@@ -190,17 +194,19 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     dontTouch(dump)
 
     coupledL2AsL1.foreach {
-      case l1 => {
+      l1 => {
         l1.module.io.debugTopDown <> DontCare
         l1.module.io.hartId := DontCare
+        l1.module.io.pfCtrlFromCore := DontCare
         l1.module.io.l2_tlb_req <> DontCare
       }
     }
 
     coupledL2.foreach {
-      case l2 => {
+      l2 => {
         l2.module.io.debugTopDown <> DontCare
         l2.module.io.hartId := DontCare
+        l2.module.io.pfCtrlFromCore := DontCare
         l2.module.io.l2_tlb_req <> DontCare
       }
     }
@@ -229,50 +235,50 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
         node.module.io_inputNeedT := io(0).inputNeedT
     }
 
-//     coupledL2(0).module.slices.head match {
-//       case tlSlice: TLSliceL2 =>
-//         val dir_resetFinish = BoringUtils.bore(tlSlice.directory.resetFinish)
-//         assume(verify_timer < 200.U || dir_resetFinish)
-//     }
+    coupledL2(0).module.slices.head match {
+      case tlSlice: L2Slice =>
+        val dir_resetFinish = BoringUtils.bore(tlSlice.directory.resetFinish)
+        assume(verify_timer < 200.U || dir_resetFinish)
+    }
 
-//     coupledL2AsL1.foreach { l1 =>
-//       l1.module.slices.head match {
-//         case tlSlice: TLSliceL1 =>
-//           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
-//             case (mshr, i) =>
-//               val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-//               val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-//               val channel = BoringUtils.bore(mshr.io.status.bits.channel)
-//               if (i >= 4)
-//                 assume(!MSHRStatus && !allocStatus)
-//               else if (i == 3)
-//                 assume(channel =/= 1.U)
-//           }
-//       }
-//     }
+    coupledL2AsL1.foreach { l1 =>
+      l1.module.slices.head match {
+        case tlSlice: L2Slice =>
+          tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
+            case (mshr, i) =>
+              val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
+              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
+              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
+              if (i >= 4)
+                assume(!MSHRStatus && !allocStatus)
+              else if (i == 3)
+                assume(channel =/= 1.U)
+          }
+      }
+    }
 
-//     coupledL2.foreach { l2 =>
-//       l2.module.slices.head match {
-//         case tlSlice: TLSliceL2 =>
-//           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
-//             case (mshr, i) =>
-//               val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-//               val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-//               val channel = BoringUtils.bore(mshr.io.status.bits.channel)
-//               if (i >= 4)
-//                 assume(!MSHRStatus && !allocStatus)
-//               else if (i == 3)
-//                 assume(channel =/= 1.U)
+    coupledL2.foreach { l2 =>
+      l2.module.slices.head match {
+        case tlSlice: L2Slice =>
+          tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
+            case (mshr, i) =>
+              val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
+              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
+              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
+              if (i >= 4)
+                assume(!MSHRStatus && !allocStatus)
+              else if (i == 3)
+                assume(channel =/= 1.U)
 
-//               if(i < 3) {
-//                 astRelaxedLiveness(MSHRStatus, !MSHRStatus, 300)
-//                 astRelaxedLiveness(MSHRStatus, !MSHRStatus, 500)
-// //                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 800)
-//                 astRelaxedLiveness(MSHRStatus, !MSHRStatus, 1000)
-//               }
-//           }
-//       }
-//     }
+              if(i < 3) {
+                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 300)
+                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 500)
+//                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 800)
+                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 1000)
+              }
+          }
+      }
+    }
   }
 }
 
