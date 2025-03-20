@@ -18,12 +18,12 @@ with open('VerifyTop.sv') as fin:
         i = 0
         while i < len(lines):
             # print(i)
-            if 'assert(' in lines[i] or '$fwrite(' in lines[i]:
+            if '$error' not in lines[i] and 'assert(' in lines[i]:
                 j = i-1
                 flag = False
                 while j >= 0:
                     # print('j: '+str(j))
-                    if '$fwrite(' not in lines[i] and ('match_tag' in lines[j] or 'resetCounter_notChaos' in lines[j]):
+                    if ('match_tag' in lines[j] or 'resetCounter_notChaos' in lines[j]):
                         flag = True
                         break
                     if 'if' in lines[j]:
@@ -50,3 +50,5 @@ with open('VerifyTop.sv') as fin:
         for line in lout:
             if not line.startswith('//'):
                 fout.write(line)
+            if line.startswith('// ----- 8< ----- FILE "firrtl_black_box_resource_files.f" ----- 8< -----'):
+                break
