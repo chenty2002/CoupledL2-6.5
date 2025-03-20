@@ -2,6 +2,7 @@ init:
 	git submodule update --init
 	cd rocket-chip && git submodule update --init hardfloat cde
 	cd coupledL2 && make init
+	./scripts/modify_coupledL2.sh
 
 compile:
 	mill -i CoupledL2Assume.compile

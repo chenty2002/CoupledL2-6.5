@@ -8,6 +8,7 @@ case class InputAsPrefectchParam() extends PrefetchParameters {
   override val hasPrefetchBit: Boolean = true
   override val hasPrefetchSrc: Boolean = true
   override val inflightEntries: Int = 16
+  override val hasTPPrefetcher: Boolean = true
 }
 
 class Input2Req(implicit p: Parameters) extends Prefetcher {

@@ -69,25 +69,9 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       // echoField = Seq(DirtyField()),
       hartId = i,
-      tagECC = Some("secded"),
-      dataECC = Some("secded"),
-      enableTagECC = false,
-      enableDataECC = false,
-      dataCheck = Some("oddparity"),
-      prefetch = Seq(InputAsPrefectchParam())
+      prefetch = Option(InputAsPrefectchParam())
     )
     case huancun.BankBitsKey => 0 // FV: 1 bank for L1s
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      false,
-      here(L2ParamKey).enablePerf,
-      here(L2ParamKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
-      here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
-      XSPerfLevel.withName("VERBOSE"),
-      i
-    )
   })))
   )
   val l1d_nodes = coupledL2AsL1.map(_.node)
@@ -100,24 +84,8 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       echoField = Seq(DirtyField(), L2AddrField()),
       hartId = i,
-      tagECC = Some("secded"),
-      dataECC = Some("secded"),
-      enableTagECC = false,
-      enableDataECC = false,
-      dataCheck = Some("oddparity"),
     )
     case huancun.BankBitsKey => 0
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      false,
-      here(L2ParamKey).enablePerf,
-      here(L2ParamKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
-      here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
-      XSPerfLevel.withName("VERBOSE"),
-      i
-    )
   }))))
   val l2_nodes = coupledL2.map(_.node)
 
@@ -138,17 +106,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       ),
       echoField = Seq(DirtyField()),
       simulation = true
-    )
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      here(HCCacheParamsKey).enableDebug,
-      here(HCCacheParamsKey).enablePerf,
-      here(HCCacheParamsKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(HCCacheParamsKey).enablePerf && !here(HCCacheParamsKey).FPGAPlatform,
-      false,
-      XSPerfLevel.withName("VERBOSE"),
-      0
     )
   })))
 
@@ -194,7 +151,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       l1 => {
         l1.module.io.debugTopDown <> DontCare
         l1.module.io.hartId := DontCare
-        l1.module.io.pfCtrlFromCore := DontCare
         l1.module.io.l2_tlb_req <> DontCare
       }
     }
@@ -203,7 +159,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       l2 => {
         l2.module.io.debugTopDown <> DontCare
         l2.module.io.hartId := DontCare
-        l2.module.io.pfCtrlFromCore := DontCare
         l2.module.io.l2_tlb_req <> DontCare
       }
     }

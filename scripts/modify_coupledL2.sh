@@ -18,12 +18,9 @@ replace_as_lazy() {
 
 # =================================================
 echo "1. 为 TLCPL2-AsL1 替换 lazy val prefetcher" # 解决输入
-replace_as_lazy "prefetcher" "./coupledL2/src/main/scala/coupledL2/CoupledL2.scala"
+replace_as_lazy "prefetcher" "./coupledL2/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala"
 
-echo "2. 为 TL2TLL2 替换 lazy val mshrCtl" # 验证卡死
-replace_as_lazy "mshrCtl" "./coupledL2/src/main/scala/coupledL2/tl2tl/Slice.scala"
-
-echo "3. 为 TL2TLL2 替换 lazy val Slice"
+echo "3. 处理 prefetcher"
 # 因为要覆盖的 Slice() 在 val slices 里，所以不方便直接 override slices（否则还需要将 slice 连线重写一遍）
 # 所以我们将原来 slices 中实例化 Slice() 部分抽象成一个函数 createSlice，
 # 然后在 TL2CHIL2-FV 中再 override 这个函数
