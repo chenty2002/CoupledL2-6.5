@@ -210,37 +210,11 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     val verify_timer = RegInit(0.U(50.W))
     verify_timer := verify_timer + 1.U
 
-    val offsetBits = 6
-    val setBits = 7
-    val tagBits = 11
-    val bankBits = 0
-
-    val addr_offsetBits = 1
-    val addr_setBits = 1
-    val addr_tagBits = 3
-    val block_bytes = 2
-
     val io = IO(Vec(nrL2, new Bundle() {
       // Input signals for formal verification
       val inputAddr = Input(UInt(ram.node.in.head._2.bundle.addressBits.W))
       val inputNeedT = Input(Bool())
     }))
-
-    def parseAddress(x: UInt): (UInt, UInt, UInt) = {
-      val offset = x
-      val set = offset >> (offsetBits + bankBits)
-      val tag = set >> setBits
-      (tag(tagBits - 1, 0), set(setBits - 1, 0), offset(offsetBits - 1, 0))
-    }
-
-    io.foreach {
-      i => {
-        val (tag, set, offset) = parseAddress(i.inputAddr)
-        assume(tag < (1 << addr_tagBits).U)
-        assume(set < (1 << addr_setBits).U)
-        assume(offset < (1 << addr_offsetBits).U)
-      }
-    }
 
     coupledL2AsL1.zipWithIndex.foreach{
       case (node, i) =>
@@ -257,39 +231,14 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     coupledL2AsL1.foreach { l1 =>
       l1.module.slices.head match {
         case tlSlice: L2Slice =>
-          val data = BoringUtils.bore(tlSlice.io.out.a.bits.data)
-          assume(data < (1 << block_bytes).U)
           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
             case (mshr, i) =>
               val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
-              if (i >= 4)
-                assume(!MSHRStatus && !allocStatus)
-              else if (i == 3)
-                assume(channel =/= 1.U)
-                
-              if(i < 3) {
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 300)
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 500)
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 1000)
-              }
-          }
-      }
-    }
 
-    coupledL2.foreach { l2 =>
-      l2.module.slices.head match {
-        case tlSlice: L2Slice =>
-          tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
-            case (mshr, i) =>
-              val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
-              if (i >= 4)
-                assume(!MSHRStatus && !allocStatus)
-              else if (i == 3)
-                assume(channel =/= 1.U)
+              astRelaxedLiveness(MSHRStatus, !MSHRStatus, 300)
+              astRelaxedLiveness(MSHRStatus, !MSHRStatus, 500)
+              astRelaxedLiveness(MSHRStatus, !MSHRStatus, 800)
+              astRelaxedLiveness(MSHRStatus, !MSHRStatus, 1000)
           }
       }
     }
