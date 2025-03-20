@@ -1,15 +1,9 @@
 package coupledL2Assume
 
 import circt.stage.ChiselStage
-import freechips.rocketchip.diplomacy.{DisableMonitors, LazyModule}
-import freechips.rocketchip.tile.MaxHartIdBits
-import huancun.{DirtyField, HCCacheParameters, HCCacheParamsKey}
-import org.chipsalliance.cde.config.Config
-import utility._
 import coupledL2._
-import coupledL2.tl2tl._
-import coupledL2AsL1._
-import coupledL2FV._
+import freechips.rocketchip.diplomacy.{DisableMonitors, LazyModule}
+import huancun.{DirtyField, HCCacheParameters, HCCacheParamsKey}
 import utility._
 
 import java.io._
@@ -54,7 +48,9 @@ object AutoVerify extends App {
   FileRegisters.writeOutputFile(
     "Verilog",
     "VerifyTop.sv",
-    ChiselStage.emitSystemVerilog(top.module, firtoolOpts = Array("--disable-annotation-unknown"))
+    ChiselStage.emitSystemVerilog(top.module, 
+                                  args = Array("--warn-conf", "id=4:s"),
+                                  firtoolOpts = Array("--disable-annotation-unknown"))
   )
   //  val cp = s"cp Verilog/VerifyTop.sv .".!
   val filename = s"VerifyTop_${suffix}.sv"
