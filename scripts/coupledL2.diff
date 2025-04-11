@@ -1,3 +1,58 @@
+diff --git a/src/main/scala/coupledL2/GrantBuffer.scala b/src/main/scala/coupledL2/GrantBuffer.scala
+index e5a8dd7..5b089ae 100644
+--- a/src/main/scala/coupledL2/GrantBuffer.scala
++++ b/src/main/scala/coupledL2/GrantBuffer.scala
+@@ -25,6 +25,12 @@ import freechips.rocketchip.tilelink._
+ import freechips.rocketchip.tilelink.TLMessages._
+ import coupledL2.prefetch.PrefetchResp
+ import coupledL2.utils.{XSPerfAccumulate, XSPerfHistogram, XSPerfMax}
++import freechips.rocketchip.util.{BundleField, ControlKey}
++
++
++case object L2AddrKey extends ControlKey[UInt](name = "l2addr")
++
++case class L2AddrField() extends BundleField[UInt](L2AddrKey, Output(UInt(24.W)), _ := 0.U)
+ 
+ // record info of those with Grant sent, yet GrantAck not received
+ // used to block Probe upwards
+@@ -77,7 +83,7 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
+   })
+ 
+   // =========== functions ===========
+-  def toTLBundleD(task: TaskBundle, data: UInt = 0.U, grant_id: UInt = 0.U) = {
++  def toTLBundleD(task: TaskBundle, data: UInt = 0.U, grant_id: UInt = 0.U, d_addr: UInt = 0.U) = {
+     val d = Wire(new TLBundleD(edgeIn.bundle))
+     d.opcode := task.opcode
+     d.param := task.param
+@@ -86,8 +92,10 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
+     d.sink := grant_id
+     d.denied := false.B
+     d.data := data
++//    data = 0.U
+     d.corrupt := false.B
+     d.echo.lift(IsKeywordKey).foreach(_ := false.B)
++    d.echo.lift(L2AddrKey).foreach(_ := d_addr)
+     d
+   }
+ 
+@@ -189,12 +197,15 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
+     grantBufValid := false.B
+   }
+ 
++  val grantaddr = Cat(grantBuf.task.tag, grantBuf.task.set, grantBuf.task.off)
++  val deqaddr = Cat(deqTask.tag, deqTask.set, deqTask.off)
++
+   io.d.valid := grantBufValid || deqValid
+   io.d.bits := Mux(
+     grantBufValid,
+-    toTLBundleD(grantBuf.task, grantBuf.data.data, grantBuf.grantid),
++    toTLBundleD(grantBuf.task, grantBuf.data.data, grantBuf.grantid, grantaddr),
+    // toTLBundleD(deqTask, deqData(0).data, deqId)
+-    toTLBundleD(deqTask, Mux(deqTask.isKeyword.getOrElse(false.B),deqData(1).data,deqData(0).data), deqId)
++    toTLBundleD(deqTask, Mux(deqTask.isKeyword.getOrElse(false.B),deqData(1).data,deqData(0).data), deqId, deqaddr)
+   )
+ 
+ 
 diff --git a/src/main/scala/coupledL2/prefetch/Prefetcher.scala b/src/main/scala/coupledL2/prefetch/Prefetcher.scala
 index 23076bf..974ffab 100644
 --- a/src/main/scala/coupledL2/prefetch/Prefetcher.scala
@@ -10,6 +65,18 @@ index 23076bf..974ffab 100644
 +    case _ =>
    }
  }
+diff --git a/src/main/scala/coupledL2/tl2tl/AcquireUnit.scala b/src/main/scala/coupledL2/tl2tl/AcquireUnit.scala
+index 6726c9b..f9d2795 100644
+--- a/src/main/scala/coupledL2/tl2tl/AcquireUnit.scala
++++ b/src/main/scala/coupledL2/tl2tl/AcquireUnit.scala
+@@ -45,6 +45,7 @@ class AcquireUnit(implicit p: Parameters) extends L2Module {
+   a.bits.echo.lift(DirtyKey).foreach(_ := true.B)
+   a.bits.user.lift(PreferCacheKey).foreach(_ := false.B)
+   a.bits.user.lift(utility.ReqSourceKey).foreach(_ := task.reqSource)
++  a.bits.echo.lift(L2AddrKey).foreach(_ := 0.U)
+   a.bits.corrupt := false.B
+ 
+   a.valid := io.task.valid
 diff --git a/src/main/scala/coupledL2/tl2tl/MainPipe.scala b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 index 5e6fb9f..e216f40 100644
 --- a/src/main/scala/coupledL2/tl2tl/MainPipe.scala
@@ -24,3 +91,77 @@ index 5e6fb9f..e216f40 100644
 +    task_s5.valid && bBlock(task_s5.bits, tag = true) && task_s5.bits.opcode(2, 1) === Grant(2, 1)
  
    io.toReqArb.blockA_s1 := io.toReqBuf(0) || io.toReqBuf(1)
+ 
+diff --git a/src/main/scala/coupledL2/tl2tl/Slice.scala b/src/main/scala/coupledL2/tl2tl/Slice.scala
+index 1d97ecd..de67d57 100644
+--- a/src/main/scala/coupledL2/tl2tl/Slice.scala
++++ b/src/main/scala/coupledL2/tl2tl/Slice.scala
+@@ -44,14 +44,14 @@ class Slice()(implicit p: Parameters) extends L2Module {
+   val reqArb = Module(new RequestArb())
+   val a_reqBuf = Module(new RequestBuffer)
+   val mainPipe = Module(new MainPipe())
+-  val mshrCtl = Module(new MSHRCtl())
++  lazy val mshrCtl = Module(new MSHRCtl())
+   val directory = Module(new Directory())
+   val dataStorage = Module(new DataStorage())
+   val refillUnit = Module(new RefillUnit())
+   val sinkA = Module(new SinkA)
+   val sinkB = Module(new SinkB)
+   val sinkC = Module(new SinkC)
+-  val sourceC = Module(new SourceC)
++  lazy val sourceC = Module(new SourceC)
+   val grantBuf = Module(new GrantBuffer)
+   val refillBuf = Module(new MSHRBuffer(wPorts = 2))
+   val releaseBuf = Module(new MSHRBuffer(wPorts = 3))
+diff --git a/src/main/scala/coupledL2/tl2tl/SourceC.scala b/src/main/scala/coupledL2/tl2tl/SourceC.scala
+index 5251b0d..dd7b7e4 100644
+--- a/src/main/scala/coupledL2/tl2tl/SourceC.scala
++++ b/src/main/scala/coupledL2/tl2tl/SourceC.scala
+@@ -181,6 +181,7 @@ class SourceC(implicit p: Parameters) extends L2Module {
+     c.corrupt := false.B
+     c.user.lift(utility.ReqSourceKey).foreach(_ := task.reqSource)
+     c.echo.lift(DirtyKey).foreach(_ := task.dirty)
++    c.echo.lift(L2AddrKey).foreach(_ := 0.U)
+     c
+   }
+ 
+diff --git a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
+index e53f3b9..749e034 100644
+--- a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
++++ b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
+@@ -137,7 +137,7 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
+       case EdgeOutKey => node.out.head._2
+       case BankBitsKey => bankBits
+     }
+-    val prefetcher = prefetchOpt.map(_ => Module(new Prefetcher()(pftParams)))
++    lazy val prefetcher = prefetchOpt.map(_ => Module(new Prefetcher()(pftParams)))
+     val prefetchTrains = prefetchOpt.map(_ => Wire(Vec(banks, DecoupledIO(new PrefetchTrain()(pftParams)))))
+     val prefetchResps = prefetchOpt.map(_ => Wire(Vec(banks, DecoupledIO(new PrefetchResp()(pftParams)))))
+     val prefetchReqsReady = WireInit(VecInit(Seq.fill(banks)(false.B)))
+@@ -193,17 +193,20 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
+     val releaseSourceD = Wire(Vec(node.in.size, Bool()))
+     val allCanFire = (RegNextN(!hintFire, sliceAhead) && RegNextN(!hintFire, sliceAhead + 1)) || Cat(releaseSourceD).orR
+ 
++    def createSlice(i: Int, edgeIn: TLEdgeIn, edgeOut: TLEdgeOut) =
++      Module(new Slice()(p.alterPartial {
++        case EdgeInKey  => edgeIn
++        case EdgeOutKey => edgeOut
++        case BankBitsKey => bankBits
++        case SliceIdKey => i
++      }))
++
+     val slices = node.in.zip(node.out).zipWithIndex.map {
+       case (((in, edgeIn), (out, edgeOut)), i) =>
+         require(in.params.dataBits == out.params.dataBits)
+         val rst_L2 = reset
+         val slice = withReset(rst_L2) {
+-          Module(new Slice()(p.alterPartial {
+-            case EdgeInKey  => edgeIn
+-            case EdgeOutKey => edgeOut
+-            case BankBitsKey => bankBits
+-            case SliceIdKey => i
+-          }))
++          createSlice(i, edgeIn, edgeOut)
+         }
+         slice.io.in <> in
+         if(enableHintGuidedGrant) {

@@ -18,9 +18,10 @@
 package coupledL2AsL1
 
 import chisel3._
-import coupledL2.CoupledL2Base
+import coupledL2._
 import coupledL2.tl2tl._
 import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.tilelink.{TLEdgeIn, TLEdgeOut}
 import org.chipsalliance.cde.config.Parameters
 
 class TLCoupledL2AsL1(implicit p: Parameters) extends TL2TLCoupledL2 {
@@ -40,6 +41,14 @@ class TLCoupledL2AsL1(implicit p: Parameters) extends TL2TLCoupledL2 {
         prefetcher.get.io_inputAddr := io_inputAddr
         prefetcher.get.io_inputNeedT := io_inputNeedT
     }
+
+    override def createSlice(i: Int, edgeIn: TLEdgeIn, edgeOut: TLEdgeOut): Slice =
+      Module(new L1Slice()(p.alterPartial {
+        case EdgeInKey  => edgeIn
+        case EdgeOutKey => edgeOut
+        case BankBitsKey => bankBits
+        case SliceIdKey => i
+      }))
   }
 
   override lazy val module = new CoupledL2AsL1Imp(this)

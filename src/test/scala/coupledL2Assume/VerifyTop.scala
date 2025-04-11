@@ -10,7 +10,7 @@ import coupledL2.tl2tl.{Slice => L2Slice, _}
 import coupledL2AsL1._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tile.MaxHartIdBits
-import freechips.rocketchip.tilelink.TLMessages.{ProbeAck, Release}
+import freechips.rocketchip.tilelink.TLMessages.{GrantData, ReleaseData}
 import freechips.rocketchip.tilelink._
 import huancun._
 import org.chipsalliance.cde.config._
@@ -67,7 +67,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       ways = 4,
       sets = 128,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
-      // echoField = Seq(DirtyField()),
+      echoField = Seq(L2AddrField()),
       hartId = i,
       prefetch = Option(InputAsPrefectchParam())
     )
@@ -82,7 +82,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       ways = 4,
       sets = 128,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
-      echoField = Seq(DirtyField(), L2AddrField()),
+      echoField = Seq(DirtyField()),
       hartId = i,
     )
     case huancun.BankBitsKey => 0
@@ -171,7 +171,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     val tagBits = 11
     val bankBits = 0
 
-    val addr_offsetBits = 1
+    val addr_offsetBits = 0
     val addr_setBits = 1
     val addr_tagBits = 3
     val block_bytes = 2
@@ -231,21 +231,40 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     coupledL2.foreach { l2 =>
       l2.module.slices.head match {
         case tlSlice: L2Slice =>
-          val saved_data = RegInit(0.U(512.W))
+          val data_p1 = RegInit(0.U(256.W))
+          val data_p2 = RegInit(0.U(256.W))
+
 
           val c_opcode = BoringUtils.bore(tlSlice.io.in.c.bits.opcode)
           val c_addr = BoringUtils.bore(tlSlice.io.in.c.bits.address)
           val c_data = BoringUtils.bore(tlSlice.io.in.c.bits.data)
+          val c_valid = BoringUtils.bore(tlSlice.io.in.c.valid)
+          val c_flag = RegInit(false.B)
 
-          when(c_opcode === Release && c_addr === 0.U) {
-            saved_data := c_data
+          when(c_opcode === ReleaseData && c_addr === 1.U && c_valid) {
+            when(c_flag) {
+              c_flag := false.B
+              data_p2 := c_data
+            }.otherwise {
+              c_flag := true.B
+              data_p1 := c_data
+            }
           }
 
-          val d_opcode = BoringUtils.bore(tlSlice.io.out.d.bits.opcode)
-          val d_addr = BoringUtils.bore(tlSlice.io.out.d.bits.echo.lift(L2AddrKey).getOrElse(0.U))
-          val d_data = BoringUtils.bore(tlSlice.io.out.d.bits.data)
-          when(d_opcode === ProbeAck && d_addr === 0.U) {
-            assert(d_data === saved_data)
+          val d_opcode = BoringUtils.bore(tlSlice.io.in.d.bits.opcode)
+          val d_addr = BoringUtils.bore(tlSlice.io.in.d.bits.echo.lift(L2AddrKey).getOrElse(0.U))
+          val d_data = BoringUtils.bore(tlSlice.io.in.d.bits.data)
+          val d_valid = BoringUtils.bore(tlSlice.io.in.d.valid)
+          val d_flag = RegInit(false.B)
+
+          when(d_opcode === GrantData && d_addr === 1.U && d_valid) {
+            when(d_flag) {
+              d_flag := false.B
+              assert(d_data === data_p1)
+            }.otherwise {
+              d_flag := true.B
+              assert(d_data === data_p2)
+            }
           }
 
           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
