@@ -10,7 +10,7 @@ import coupledL2.tl2tl.{Slice => L2Slice, _}
 import coupledL2AsL1._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tile.MaxHartIdBits
-import freechips.rocketchip.tilelink.TLMessages.{GrantData, ReleaseData}
+import freechips.rocketchip.tilelink.TLMessages.{GrantData, ProbeAckData, ReleaseData}
 import freechips.rocketchip.tilelink._
 import huancun._
 import org.chipsalliance.cde.config._
@@ -166,6 +166,8 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     val verify_timer = RegInit(0.U(50.W))
     verify_timer := verify_timer + 1.U
 
+    assert(verify_timer < 1000.U)
+
     val offsetBits = 6
     val setBits = 7
     val tagBits = 11
@@ -241,7 +243,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
           val c_valid = BoringUtils.bore(tlSlice.io.in.c.valid)
           val c_flag = RegInit(false.B)
 
-          when(c_opcode === ReleaseData && c_addr === 1.U && c_valid) {
+          when((c_opcode === ReleaseData || c_opcode === ProbeAckData) && c_addr === (1<<6).U && c_valid) {
             when(c_flag) {
               c_flag := false.B
               data_p2 := c_data
@@ -257,13 +259,13 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
           val d_valid = BoringUtils.bore(tlSlice.io.in.d.valid)
           val d_flag = RegInit(false.B)
 
-          when(d_opcode === GrantData && d_addr === 1.U && d_valid) {
+          when(d_opcode === GrantData && d_addr === (1<<6).U && d_valid) {
             when(d_flag) {
               d_flag := false.B
-              assert(d_data === data_p1)
+              assert(d_data === data_p2)
             }.otherwise {
               d_flag := true.B
-              assert(d_data === data_p2)
+              assert(d_data === data_p1)
             }
           }
 
