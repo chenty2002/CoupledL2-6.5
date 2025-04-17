@@ -22,11 +22,11 @@ import coupledL2._
 import freechips.rocketchip.diplomacy._
 import org.chipsalliance.cde.config.Parameters
 
-class TLCoupledL2AsL1(implicit p: Parameters) extends CoupledL2Base {
-  println(s"prefetchers: $prefetchers")
-  assert(prefetchers.length == 1 && prefetchers.exists(_.isInstanceOf[InputAsPrefectchParam]))
+class TLCoupledL2AsL1(implicit p: Parameters) extends CoupledL2 {
+  println(s"prefetchers: ${cacheParams.prefetch}")
+  assert(cacheParams.prefetch.exists(_.isInstanceOf[InputAsPrefectchParam]))
 
-  class CoupledL2AsL1Imp(wrapper: LazyModule) extends BaseCoupledL2Imp(wrapper) {
+  class CoupledL2AsL1Imp(wrapper: LazyModule) extends CoupledL2Imp(wrapper) {
     override lazy val prefetcher = prefetchOpt.map(_ => Module(new Input2Req()(pftParams)))
     val fullAddrBits = node.in.head._2.bundle.addressBits
 
@@ -41,5 +41,5 @@ class TLCoupledL2AsL1(implicit p: Parameters) extends CoupledL2Base {
     }
   }
 
-  lazy val module = new CoupledL2AsL1Imp(this)
+  override lazy val module = new CoupledL2AsL1Imp(this)
 }

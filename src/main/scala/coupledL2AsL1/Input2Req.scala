@@ -21,11 +21,10 @@ class Input2Req(implicit p: Parameters) extends Prefetcher {
   io.req.valid := true.B
   io.req.bits.tag := parseFullAddress(io_inputAddr)._1
   io.req.bits.set := parseFullAddress(io_inputAddr)._2
-  io.req.bits.vaddr.foreach(_ := 0.U)
   io.req.bits.needT := io_inputNeedT
   io.req.bits.source := {
     // for Core 0, it's 0,2,4...; for Core 1, it's 1,3,5...
-    val reqSource = RegInit(cacheParams.hartId.U(sourceIdBits.W))
+    val reqSource = RegInit(cacheParams.hartIds.head.U(sourceIdBits.W))
     when(io.req.valid && io.req.ready) {
       reqSource := reqSource + 2.U
     }
@@ -36,9 +35,4 @@ class Input2Req(implicit p: Parameters) extends Prefetcher {
   // train, resp, tlb_req are not used
   io.train.ready := true.B
   io.resp.ready := true.B
-
-  io.tlb_req.req.valid := false.B
-  io.tlb_req.req.bits := DontCare
-  io.tlb_req.req_kill := DontCare
-  io.tlb_req.resp.ready := true.B
 }

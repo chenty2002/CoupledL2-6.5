@@ -5,24 +5,14 @@ import circt.stage.ChiselStage
 import chisel3.util._
 import chisel3.util.experimental.BoringUtils
 import chiselFv._
-import coupledL2._
-import coupledL2.tl2tl.{Slice => L2Slice, _}
+import coupledL2.{Slice => L2Slice, _}
 import coupledL2AsL1._
 import freechips.rocketchip.diplomacy._
-import freechips.rocketchip.tile.MaxHartIdBits
 import freechips.rocketchip.tilelink._
 import huancun._
 import org.chipsalliance.cde.config._
 import utility._
 
-
-object baseConfig {
-  def apply(maxHartIdBits: Int) = {
-    new Config((_, _, _) => {
-      case MaxHartIdBits => maxHartIdBits
-    })
-  }
-}
 
 class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
@@ -60,67 +50,34 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   }
   val l0_nodes = (0 until nrL2).map(i => createClientNode(s"L0_$i", 32))
 
-  val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(baseConfig(1).alter((_, here, _) => {
+  val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(new Config((_, _, _) => {
     case L2ParamKey => L2Param(
       name = s"L1d_$i",
       ways = 4,
       sets = 128,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       // echoField = Seq(DirtyField()),
-      hartId = i,
-      tagECC = Some("secded"),
-      dataECC = Some("secded"),
-      enableTagECC = false,
-      enableDataECC = false,
-      dataCheck = Some("oddparity"),
-      prefetch = Seq(InputAsPrefectchParam())
+      hartIds = Seq{i},
+      prefetch = Option(InputAsPrefectchParam())
     )
     case huancun.BankBitsKey => 0 // FV: 1 bank for L1s
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      false,
-      here(L2ParamKey).enablePerf,
-      here(L2ParamKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
-      here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
-      XSPerfLevel.withName("VERBOSE"),
-      i
-    )
-  })))
-  )
+  }))))
   val l1d_nodes = coupledL2AsL1.map(_.node)
 
-  val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((_, here, _) => {
+  val coupledL2 = (0 until nrL2).map(i => LazyModule(new CoupledL2()(new Config((_, _, _) => {
     case L2ParamKey => L2Param(
       name = s"l2$i",
       ways = 4,
       sets = 128,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       echoField = Seq(DirtyField()),
-      hartId = i,
-      tagECC = Some("secded"),
-      dataECC = Some("secded"),
-      enableTagECC = false,
-      enableDataECC = false,
-      dataCheck = Some("oddparity"),
+      hartIds = Seq{i}
     )
     case huancun.BankBitsKey => 0
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      false,
-      here(L2ParamKey).enablePerf,
-      here(L2ParamKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
-      here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
-      XSPerfLevel.withName("VERBOSE"),
-      i
-    )
   }))))
   val l2_nodes = coupledL2.map(_.node)
 
-  val l3 = LazyModule(new HuanCun()(baseConfig(1).alter((_, here, _) => {
+  val l3 = LazyModule(new HuanCun()(new Config((_, _, _) => {
     case HCCacheParamsKey => HCCacheParameters(
       name = "L3",
       level = 3,
@@ -138,17 +95,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       echoField = Seq(DirtyField()),
       simulation = true
     )
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      here(HCCacheParamsKey).enableDebug,
-      here(HCCacheParamsKey).enablePerf,
-      here(HCCacheParamsKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(HCCacheParamsKey).enablePerf && !here(HCCacheParamsKey).FPGAPlatform,
-      false,
-      XSPerfLevel.withName("VERBOSE"),
-      0
-    )
   })))
 
   val xbar = TLXbar()
@@ -160,13 +106,13 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
   l1d_nodes.zip(l2_nodes).zipWithIndex map {
     case ((l1d, l2), i) => l2 := 
-        TLLogger(s"L2_L1[${i}].C[0]", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) := 
+        TLLogger(s"L2_L1[${i}].C[0]") :=
         TLBuffer() := l1d
   }
 
   l2_nodes.zipWithIndex map {
     case(l2, i) => xbar := 
-      TLLogger(s"L3_L2[${i}]", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) := 
+      TLLogger(s"L3_L2[${i}]") :=
       TLBuffer() := l2
   }
 
@@ -175,7 +121,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       TLFragmenter(32, 64) :=*
       TLCacheCork() :=*
       TLDelayer(delayFactor) :=*
-      TLLogger(s"MEM_L3", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) :=*
+      TLLogger(s"MEM_L3") :=*
       l3.node :=* xbar
 
   lazy val module = new LazyModuleImp(this) with Formal {
@@ -192,18 +138,12 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     coupledL2AsL1.foreach {
       l1 => {
         l1.module.io.debugTopDown <> DontCare
-        l1.module.io.hartId := DontCare
-        l1.module.io.pfCtrlFromCore := DontCare
-        l1.module.io.l2_tlb_req <> DontCare
       }
     }
 
     coupledL2.foreach {
       l2 => {
         l2.module.io.debugTopDown <> DontCare
-        l2.module.io.hartId := DontCare
-        l2.module.io.pfCtrlFromCore := DontCare
-        l2.module.io.l2_tlb_req <> DontCare
       }
     }
 
@@ -250,30 +190,29 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
     coupledL2(0).module.slices.head match {
       case tlSlice: L2Slice =>
-        val dir_resetFinish = BoringUtils.bore(tlSlice.directory.resetFinish)
+        val dir_resetFinish = Wire(Bool())
+        BoringUtils.bore(tlSlice.directory.resetFinish, Seq(dir_resetFinish))
         assume(verify_timer < 200.U || dir_resetFinish)
     }
 
     coupledL2AsL1.foreach { l1 =>
       l1.module.slices.head match {
         case tlSlice: L2Slice =>
-          val data = BoringUtils.bore(tlSlice.io.out.a.bits.data)
+          val data = Wire(UInt(256.W))
+          BoringUtils.bore(tlSlice.io.out.a.bits.data, Seq(data))
           assume(data < (1 << block_bytes).U)
           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
             case (mshr, i) =>
-              val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
+              val MSHRStatus = Wire(Bool())
+              BoringUtils.bore(mshr.io.status.valid, Seq(MSHRStatus))
+              val allocStatus = Wire(Bool())
+              BoringUtils.bore(mshr.io.alloc.valid, Seq(allocStatus))
+              val channel = Wire(UInt(3.W))
+              BoringUtils.bore(mshr.io.status.bits.channel, Seq(channel))
               if (i >= 4)
                 assume(!MSHRStatus && !allocStatus)
               else if (i == 3)
                 assume(channel =/= 1.U)
-                
-              if(i < 3) {
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 300)
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 500)
-                astRelaxedLiveness(MSHRStatus, !MSHRStatus, 1000)
-              }
           }
       }
     }
@@ -283,13 +222,22 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
         case tlSlice: L2Slice =>
           tlSlice.mshrCtl.mshrs.zipWithIndex.foreach {
             case (mshr, i) =>
-              val MSHRStatus = BoringUtils.bore(mshr.io.status.valid)
-              val allocStatus = BoringUtils.bore(mshr.io.alloc.valid)
-              val channel = BoringUtils.bore(mshr.io.status.bits.channel)
+              val MSHRStatus = Wire(Bool())
+              BoringUtils.bore(mshr.io.status.valid, Seq(MSHRStatus))
+              val allocStatus = Wire(Bool())
+              BoringUtils.bore(mshr.io.alloc.valid, Seq(allocStatus))
+              val channel = Wire(UInt(3.W))
+              BoringUtils.bore(mshr.io.status.bits.channel, Seq(channel))
               if (i >= 4)
                 assume(!MSHRStatus && !allocStatus)
               else if (i == 3)
                 assume(channel =/= 1.U)
+
+              if(i < 3) {
+                assertLivenessTimer(MSHRStatus, !MSHRStatus, 300)
+                assertLivenessTimer(MSHRStatus, !MSHRStatus, 500)
+                assertLivenessTimer(MSHRStatus, !MSHRStatus, 1000)
+              }
           }
       }
     }
@@ -297,7 +245,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 }
 
 object VerifyTop extends App {
-  val config = baseConfig(1).alterPartial({
+  val config = new Config((_, _, _) => {
     case L2ParamKey => L2Param(
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
     )
@@ -310,8 +258,6 @@ object VerifyTop extends App {
   FileRegisters.writeOutputFile(
     "Verilog",
     "VerifyTop.sv",
-    ChiselStage.emitSystemVerilog(top.module, 
-                                  args = Array("--warn-conf", "id=4:s"),
-                                  firtoolOpts = Array("--disable-annotation-unknown"))
+    ChiselStage.emitSystemVerilog(top.module)
   )
 }
