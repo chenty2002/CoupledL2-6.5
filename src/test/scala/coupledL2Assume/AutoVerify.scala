@@ -4,6 +4,7 @@ import circt.stage.ChiselStage
 import coupledL2._
 import freechips.rocketchip.diplomacy.{DisableMonitors, LazyModule}
 import huancun.{DirtyField, HCCacheParameters, HCCacheParamsKey}
+import org.chipsalliance.cde.config.Config
 import utility._
 
 import java.io._
@@ -32,7 +33,7 @@ object AutoVerify extends App {
     newPy.close()
   }
 
-  val config = baseConfig(1).alterPartial({
+  val config = new Config((_, _, _) => {
     case L2ParamKey => L2Param(
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
     )
