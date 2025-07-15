@@ -1,6 +1,6 @@
 print('starting SystemVerilog file post-processing')
-with open('VerifyTop.sv') as fin:
-    with open('VerifyTop_1000-3000-5000.sv', 'w') as fout:
+with open('Verilog/VerifyTop.sv') as fin:
+    with open('VerifyTop_latest.sv', 'w') as fout:
         linnnes = fin.readlines()
         lines = []
         for line in linnnes:

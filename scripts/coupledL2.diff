@@ -1,28 +1,56 @@
 diff --git a/src/main/scala/coupledL2/CoupledL2.scala b/src/main/scala/coupledL2/CoupledL2.scala
-index 837476b..0f766cf 100644
+index a2e0487..54f108f 100644
 --- a/src/main/scala/coupledL2/CoupledL2.scala
 +++ b/src/main/scala/coupledL2/CoupledL2.scala
-@@ -400,26 +400,33 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
+@@ -89,9 +89,9 @@ trait HasCoupledL2Parameters {
+   def enableTagSRAMSplit = encTagBankBits % (tagSRAMSplit / tagBankSplit) == 0
+   def eccTagBankBits = encTagBankBits - tagBankBits
+   def enableDataECC = cacheParams.enableDataECC
+-  def dataBankSplit = 4
+-  def dataSRAMSplit = 8
+-  def wordBits = 64
++  def dataBankSplit = 1
++  def dataSRAMSplit = 1
++  def wordBits = 2
+   def bankWords = blockBits / wordBits / dataBankSplit
+   def dataBankBits = wordBits * bankWords
+   def encBankBits = cacheParams.dataCode.width(dataBankBits)
+@@ -270,7 +270,7 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
+         fifoId = None
+       )
+     },
+-    beatBytes = 32,
++    beatBytes = 1,
+     minLatency = 2,
+     responseFields = cacheParams.respField,
+     requestKeys = cacheParams.reqKey,
+@@ -364,7 +364,7 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
+       case EdgeOutKey => node.out.head._2
+       case BankBitsKey => bankBits
+     }
+-    val prefetcher = prefetchOpt.map(_ => Module(new Prefetcher()(pftParams)))
++    lazy val prefetcher = prefetchOpt.map(_ => Module(new Prefetcher()(pftParams)))
+     val prefetchTrains = prefetchOpt.map(_ => Wire(Vec(banks, DecoupledIO(new PrefetchTrain()(pftParams)))))
+     val prefetchResps = prefetchOpt.map(_ => Wire(Vec(banks, DecoupledIO(new PrefetchResp()(pftParams)))))
+     val prefetchReqsReady = WireInit(VecInit(Seq.fill(banks)(false.B)))
+@@ -414,26 +414,30 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
      val releaseSourceD = Wire(Vec(banks, Bool()))
      val allCanFire = (RegNextN(!hintFire, sliceAhead) && RegNextN(!hintFire, sliceAhead + 1)) || Cat(releaseSourceD).orR
  
-+    def createSlice(enableCHI: Boolean,
-+                    sliceId: Int,
-+                    edgeIn: TLEdgeIn,
-+                    edgeOut: TLEdgeOut): BaseSlice[_ <: BaseOuterBundle] = {
++    def createSlice(edgeIn: TLEdgeIn, edgeOut: TLEdgeOut, i: Int): BaseSlice[_ <: BaseOuterBundle] = {
 +      if (enableCHI) {
 +        Module(new tl2chi.Slice()(p.alterPartial {
 +          case EdgeInKey => edgeIn
 +          case EdgeOutKey => edgeOut
 +          case BankBitsKey => bankBits
-+          case SliceIdKey => sliceId
++          case SliceIdKey => i
 +        }))
 +      } else {
 +        Module(new tl2tl.Slice()(p.alterPartial {
 +          case EdgeInKey => edgeIn
 +          case EdgeOutKey => edgeOut
 +          case BankBitsKey => bankBits
-+          case SliceIdKey => sliceId
++          case SliceIdKey => i
 +        }))
 +      }
 +    }
@@ -47,22 +75,43 @@ index 837476b..0f766cf 100644
 -              case SliceIdKey => i
 -            }))
 -          }
-+          createSlice(enableCHI, i, edgeIn, edgeOut)
++          createSlice(edgeIn, edgeOut, i)
          }
          slice.io.in <> in
          if (enableHintGuidedGrant) {
+diff --git a/src/main/scala/coupledL2/DataStorage.scala b/src/main/scala/coupledL2/DataStorage.scala
+index 44507c2..1597760 100644
+--- a/src/main/scala/coupledL2/DataStorage.scala
++++ b/src/main/scala/coupledL2/DataStorage.scala
+@@ -65,12 +65,15 @@ class DataStorage(implicit p: Parameters) extends L2Module {
+     val wdata = Input(new DSBlock)
+   })
+ 
++  val test = new DSECCBankBlock
++  println(s"----------------${test.data.getWidth}")
++
+   // read data is set MultiCycle Path 2
+   val array = Module(new GatedSplittedSRAM(
+     gen = new DSECCBankBlock,
+     set = blocks,
+     way = 1,
+-    dataSplit = dataSRAMSplit,
++    dataSplit = 1,
+     singlePort = true,
+     readMCP2 = true,
+     hasMbist = p(L2ParamKey).hasMbist,
 diff --git a/src/main/scala/coupledL2/tl2tl/MainPipe.scala b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
-index e5a4fd1..6ba6b6e 100644
+index 605ca02..9d6636a 100644
 --- a/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 +++ b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
-@@ -600,8 +600,8 @@ class MainPipe(implicit p: Parameters) extends L2Module with HasPerfEvents {
+@@ -599,8 +599,8 @@ class MainPipe(implicit p: Parameters) extends L2Module with HasPerfEvents {
    io.toReqArb.blockB_s1 :=
      task_s2.valid && bBlock(task_s2.bits) ||
      task_s3.valid && bBlock(task_s3.bits) ||
 -    task_s4.valid && bBlock(task_s4.bits, tag = true) ||
 -    task_s5.valid && bBlock(task_s5.bits, tag = true)
 +    task_s4.valid && bBlock(task_s4.bits, tag = true) && task_s4.bits.opcode(2, 1) === Grant(2, 1) ||
-+    task_s5.valid && bBlock(task_s5.bits, tag = true) && task_s5.bits.opcode(2, 1) === Grant(2, 1) 
++    task_s5.valid && bBlock(task_s5.bits, tag = true) && task_s5.bits.opcode(2, 1) === Grant(2, 1)
  
    io.toReqArb.blockA_s1 := false.B
  

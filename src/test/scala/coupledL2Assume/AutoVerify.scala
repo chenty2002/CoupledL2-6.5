@@ -41,14 +41,14 @@ object AutoVerify extends App {
     )
   })
 
-  val suffix = "performance-300-500-1000"
+  val suffix = "latest"
   val path = "/home/lyj238/VerifyL2"
   val top = DisableMonitors(p => LazyModule(new VerifyTop()(p)))(config)
 
   FileRegisters.writeOutputFile(
     "Verilog",
     "VerifyTop.sv",
-    ChiselStage.emitSystemVerilog(top.module, 
+    ChiselStage.emitSystemVerilog(top.module,
                                   args = Array("--warn-conf", "id=4:s"),
                                   firtoolOpts = Array("--disable-annotation-unknown"))
   )
@@ -58,7 +58,7 @@ object AutoVerify extends App {
   val py = "python set_verify.py".!
   println(s"Verilog File Name: ${filename}")
   val server_addr = "lyj238@192.168.20.110"
-  val server_path = "/home/lyj238/VerifyL2/Chisel6.5/mshrctl_assume"
+  val server_path = "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest/w"
   val scp_cmd = s"scp ${filename} ${server_addr}:${server_path}/${filename}".!
   if(scp_cmd == 0) {
     println("scp success")

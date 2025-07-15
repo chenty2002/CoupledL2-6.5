@@ -18,7 +18,7 @@ trait Formal {
   def fvAssert(cond: Bool, msg: String = "")
               (implicit sourceInfo: SourceInfo): Unit = {
     when(notChaos) {
-      assert(cond, msg)
+      AssertProperty(cond, msg)
     }
   }
 
