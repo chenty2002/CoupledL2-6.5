@@ -8,3 +8,6 @@ build/
 .metals/
 .vscode/
 Verilog/
+coupledL2/
+rocket-chip/
+utility/
