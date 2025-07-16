@@ -110,7 +110,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   })))
 
   val xbar = TLXbar()
-  val ram = LazyModule(new TLRAM(AddressSet(0, 0xff_ffffL), beatBytes = 32))
+  val ram = LazyModule(new TLRAM(AddressSet(0, 0xffffL), beatBytes = 32))
 
   l0_nodes.zip(l1d_nodes) map {
     case (l0, l1d) => l1d := l0
@@ -170,7 +170,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
     val offsetBits = 6
     val setBits = 7
-    val tagBits = 11
+    val tagBits = 3
     val bankBits = 0
 
     val addr_offsetBits = 0
@@ -230,12 +230,12 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       }
     }
 
+    val data_p1 = RegInit(0.U(256.W))
+    val data_p2 = RegInit(0.U(256.W))
+
     coupledL2.foreach { l2 =>
       l2.module.slices.head match {
         case tlSlice: L2Slice =>
-          val data_p1 = RegInit(0.U(256.W))
-          val data_p2 = RegInit(0.U(256.W))
-
 
           val c_opcode = BoringUtils.bore(tlSlice.io.in.c.bits.opcode)
           val c_addr = BoringUtils.bore(tlSlice.io.in.c.bits.address)
