@@ -4,9 +4,9 @@ init:
 	git clone https://github.com/OpenXiangShan/Utility.git utility
 	cd utility && git checkout 708d3eb44fc231608b87ac1242b28a7445fe6637 && cd ..
 	cd coupledL2 && git checkout 7c2062903b9a1afda5bb1191081e2fc38b1ccc1e && cd ..
-	cd rocket-chip && git checkout 175dfe096e3b7c630f93ef328df1cf0b2ed55de1
-	git submodule update --init hardfloat cde && cd ..
-	cd coupledL2 && make init
+	cd rocket-chip && git checkout 175dfe096e3b7c630f93ef328df1cf0b2ed55de1 && cd ..
+	cd rocket-chip && git submodule update --init hardfloat cde && cd ..
+	cd coupledL2 && make init && cd ..
 	./scripts/modify_coupledL2.sh
 
 compile:

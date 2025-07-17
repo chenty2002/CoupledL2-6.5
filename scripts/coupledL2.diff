@@ -1,5 +1,26 @@
+diff --git a/src/main/scala/coupledL2/DataStorage.scala b/src/main/scala/coupledL2/DataStorage.scala
+index 6a68f4a..7970fd3 100644
+--- a/src/main/scala/coupledL2/DataStorage.scala
++++ b/src/main/scala/coupledL2/DataStorage.scala
+@@ -46,6 +46,7 @@ class DataStorage(implicit p: Parameters) extends L2Module {
+     val rdata = Output(new DSBlock)
+     val wdata = Input(new DSBlock)
+   })
++  val io_wdata = WireDefault(0.U.asTypeOf(new DSBlock))
+ 
+   val array = Module(new SRAMTemplate(
+     gen = new DSBlock,
+@@ -58,7 +59,7 @@ class DataStorage(implicit p: Parameters) extends L2Module {
+   val arrayIdx = Cat(io.req.bits.way, io.req.bits.set)
+   val wen = io.req.valid && io.req.bits.wen
+   val ren = io.req.valid && !io.req.bits.wen
+-  array.io.w.apply(wen, io.wdata, arrayIdx, 1.U)
++  array.io.w.apply(wen, io_wdata, arrayIdx, 1.U)
+   array.io.r.apply(ren, arrayIdx)
+ 
+   // for timing, we set this as multicycle path
 diff --git a/src/main/scala/coupledL2/GrantBuffer.scala b/src/main/scala/coupledL2/GrantBuffer.scala
-index e5a8dd7..5b089ae 100644
+index e5a8dd7..a169dc5 100644
 --- a/src/main/scala/coupledL2/GrantBuffer.scala
 +++ b/src/main/scala/coupledL2/GrantBuffer.scala
 @@ -25,6 +25,12 @@ import freechips.rocketchip.tilelink._
@@ -24,32 +45,29 @@ index e5a8dd7..5b089ae 100644
      val d = Wire(new TLBundleD(edgeIn.bundle))
      d.opcode := task.opcode
      d.param := task.param
-@@ -86,8 +92,10 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
-     d.sink := grant_id
-     d.denied := false.B
+@@ -88,6 +94,7 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
      d.data := data
-+//    data = 0.U
      d.corrupt := false.B
      d.echo.lift(IsKeywordKey).foreach(_ := false.B)
 +    d.echo.lift(L2AddrKey).foreach(_ := d_addr)
      d
    }
  
-@@ -189,12 +197,15 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
+@@ -189,12 +196,15 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
      grantBufValid := false.B
    }
  
-+  val grantaddr = Cat(grantBuf.task.tag, grantBuf.task.set, grantBuf.task.off)
-+  val deqaddr = Cat(deqTask.tag, deqTask.set, deqTask.off)
++  val grantAddr = Cat(grantBuf.task.tag, grantBuf.task.set, grantBuf.task.off)
++  val deqAddr = Cat(deqTask.tag, deqTask.set, deqTask.off)
 +
    io.d.valid := grantBufValid || deqValid
    io.d.bits := Mux(
      grantBufValid,
 -    toTLBundleD(grantBuf.task, grantBuf.data.data, grantBuf.grantid),
-+    toTLBundleD(grantBuf.task, grantBuf.data.data, grantBuf.grantid, grantaddr),
++    toTLBundleD(grantBuf.task, grantBuf.data.data, grantBuf.grantid, grantAddr),
     // toTLBundleD(deqTask, deqData(0).data, deqId)
 -    toTLBundleD(deqTask, Mux(deqTask.isKeyword.getOrElse(false.B),deqData(1).data,deqData(0).data), deqId)
-+    toTLBundleD(deqTask, Mux(deqTask.isKeyword.getOrElse(false.B),deqData(1).data,deqData(0).data), deqId, deqaddr)
++    toTLBundleD(deqTask, Mux(deqTask.isKeyword.getOrElse(false.B),deqData(1).data,deqData(0).data), deqId, deqAddr)
    )
  
  
@@ -93,18 +111,10 @@ index 5e6fb9f..e216f40 100644
    io.toReqArb.blockA_s1 := io.toReqBuf(0) || io.toReqBuf(1)
  
 diff --git a/src/main/scala/coupledL2/tl2tl/Slice.scala b/src/main/scala/coupledL2/tl2tl/Slice.scala
-index 1d97ecd..de67d57 100644
+index 1d97ecd..a84b42e 100644
 --- a/src/main/scala/coupledL2/tl2tl/Slice.scala
 +++ b/src/main/scala/coupledL2/tl2tl/Slice.scala
-@@ -44,14 +44,14 @@ class Slice()(implicit p: Parameters) extends L2Module {
-   val reqArb = Module(new RequestArb())
-   val a_reqBuf = Module(new RequestBuffer)
-   val mainPipe = Module(new MainPipe())
--  val mshrCtl = Module(new MSHRCtl())
-+  lazy val mshrCtl = Module(new MSHRCtl())
-   val directory = Module(new Directory())
-   val dataStorage = Module(new DataStorage())
-   val refillUnit = Module(new RefillUnit())
+@@ -51,7 +51,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
    val sinkA = Module(new SinkA)
    val sinkB = Module(new SinkB)
    val sinkC = Module(new SinkC)
@@ -126,9 +136,18 @@ index 5251b0d..dd7b7e4 100644
    }
  
 diff --git a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
-index e53f3b9..749e034 100644
+index e53f3b9..44963e7 100644
 --- a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
 +++ b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
+@@ -50,7 +50,7 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
+         fifoId = None
+       )
+     },
+-    beatBytes = 32,
++    beatBytes = 1,
+     minLatency = 2,
+     responseFields = cacheParams.respField,
+     requestKeys = cacheParams.reqKey,
 @@ -137,7 +137,7 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
        case EdgeOutKey => node.out.head._2
        case BankBitsKey => bankBits
