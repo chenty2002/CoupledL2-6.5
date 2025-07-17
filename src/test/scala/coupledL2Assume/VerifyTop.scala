@@ -15,6 +15,8 @@ import huancun._
 import org.chipsalliance.cde.config._
 import utility._
 
+import java.io.File
+
 
 object baseConfig {
   def apply(maxHartIdBits: Int) = {
@@ -272,7 +274,11 @@ object VerifyTop extends App {
     )
   })
   val top = DisableMonitors(p => LazyModule(new VerifyTop()(p)))(config)
+  val directory = new File("./Verilog")
 
+  if (!directory.exists()) {
+    directory.mkdirs()
+  }
   FileRegisters.writeOutputFile(
     "Verilog",
     "VerifyTop_w.sv",
