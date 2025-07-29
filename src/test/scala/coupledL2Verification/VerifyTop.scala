@@ -1,4 +1,4 @@
-package coupledL2Assume
+package coupledL2Verification
 
 import chisel3._
 import circt.stage.ChiselStage

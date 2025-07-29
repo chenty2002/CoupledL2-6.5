@@ -4,10 +4,9 @@ import scalafmt._
 import os.Path
 import publish._
 import $file.common
-import $file.`rocket-chip`.common
-import $file.`rocket-chip`.common
-import $file.`rocket-chip`.cde.common
-import $file.`rocket-chip`.hardfloat.build
+import $file.coupledL2.`rocket-chip`.common
+import $file.coupledL2.`rocket-chip`.cde.common
+import $file.coupledL2.`rocket-chip`.hardfloat.common
 
 
 trait HasChisel6 extends ScalaModule {
@@ -29,24 +28,24 @@ trait HasChisel6 extends ScalaModule {
   override def scalacPluginIvyDeps = super.scalacPluginIvyDeps() ++ Agg(chiselPluginIvy.get)
 }
 
-object rocketchip extends `rocket-chip`.common.RocketChipModule with HasChisel6 {
+object rocketchip extends millbuild.coupledL2.`rocket-chip`.common.RocketChipModule with HasChisel6 {
 
-  val rcPath = os.pwd / "rocket-chip"
+  val rcPath = os.pwd / "coupledL2" / "rocket-chip"
   override def millSourcePath = rcPath
 
   def mainargsIvy = ivy"com.lihaoyi::mainargs:0.7.0"
 
   def json4sJacksonIvy = ivy"org.json4s::json4s-jackson:4.0.7"
 
-  object macros extends `rocket-chip`.common.MacrosModule with HasChisel6 {
+  object macros extends millbuild.coupledL2.`rocket-chip`.common.MacrosModule with HasChisel6 {
     def scalaReflectIvy = ivy"org.scala-lang:scala-reflect:${scalaVersion}"
   }
 
-  object cde extends `rocket-chip`.cde.common.CDEModule with HasChisel6 {
+  object cde extends millbuild.coupledL2.`rocket-chip`.cde.common.CDEModule with HasChisel6 {
     override def millSourcePath = rcPath / "cde" / "cde"
   }
 
-  object hardfloat extends `rocket-chip`.hardfloat.common.HardfloatModule with HasChisel6 {
+  object hardfloat extends millbuild.coupledL2.`rocket-chip`.hardfloat.common.HardfloatModule with HasChisel6 {
     override def millSourcePath = rcPath / "hardfloat" / "hardfloat"
   }
 
@@ -59,7 +58,7 @@ object rocketchip extends `rocket-chip`.common.RocketChipModule with HasChisel6 
 }
 
 object utility extends SbtModule with HasChisel6 {
-  override def millSourcePath = os.pwd / "utility"
+  override def millSourcePath = os.pwd / "coupledL2" / "utility"
 
   override def moduleDeps = super.moduleDeps ++ Seq(rocketchip)
 }
@@ -79,7 +78,7 @@ object coupledL2 extends SbtModule with HasChisel6 {
   )
 }
 
-object CoupledL2Assume extends SbtModule with HasChisel6 with millbuild.common.CoupledL2AssumeModule {
+object CoupledL2Verification extends SbtModule with HasChisel6 with millbuild.common.CoupledL2VerificationModule {
 
   override def millSourcePath = millOuterCtx.millSourcePath
 
