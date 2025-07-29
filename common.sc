@@ -1,7 +1,7 @@
 import mill._
 import scalalib._
 
-trait CoupledL2AssumeModule extends ScalaModule {
+trait CoupledL2VerificationModule extends ScalaModule {
 
   def rocketModule: ScalaModule
 

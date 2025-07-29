@@ -8,13 +8,13 @@ MILL_VER := $(subst $(newline),,$(shell cat .mill-version))
 MILL ?= mill-$(MILL_VER)
 
 compile:
-	$(MILL) -i CoupledL2Assume.compile
+	$(MILL) -i CoupledL2Verification.compile
 
 verify:
-	$(MILL) -i CoupledL2Assume.test.runMain coupledL2Assume.VerifyTop -td build
+	$(MILL) -i CoupledL2Verification.test.runMain coupledL2Verification.VerifyTop -td build
 
 auto:
-	$(MILL) -i CoupledL2Assume.test.runMain coupledL2Assume.AutoVerify -td build
+	$(MILL) -i CoupledL2Verification.test.runMain coupledL2Verification.AutoVerify -td build
 
 clean:
 	rm -rf ./build
