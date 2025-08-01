@@ -136,18 +136,9 @@ index 5251b0d..dd7b7e4 100644
    }
  
 diff --git a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
-index e53f3b9..44963e7 100644
+index e53f3b9..749e034 100644
 --- a/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
 +++ b/src/main/scala/coupledL2/tl2tl/TL2TLCoupledL2.scala
-@@ -50,7 +50,7 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
-         fifoId = None
-       )
-     },
--    beatBytes = 32,
-+    beatBytes = 1,
-     minLatency = 2,
-     responseFields = cacheParams.respField,
-     requestKeys = cacheParams.reqKey,
 @@ -137,7 +137,7 @@ class TL2TLCoupledL2(implicit p: Parameters) extends CoupledL2Base {
        case EdgeOutKey => node.out.head._2
        case BankBitsKey => bankBits
