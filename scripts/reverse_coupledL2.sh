@@ -2,3 +2,4 @@
 
 cd coupledL2 && git apply -R ../scripts/coupledL2.diff
 cd HuanCun && git apply -R ../../scripts/huancun.diff
+sed -i 's/$/\r/' ../src/main/scala/coupledL2/prefetch/Prefetcher.scala
