@@ -1,29 +1,7 @@
 diff --git a/src/main/scala/coupledL2/CoupledL2.scala b/src/main/scala/coupledL2/CoupledL2.scala
-index a2e0487..54f108f 100644
+index a2e0487..d4f77f3 100644
 --- a/src/main/scala/coupledL2/CoupledL2.scala
 +++ b/src/main/scala/coupledL2/CoupledL2.scala
-@@ -89,9 +89,9 @@ trait HasCoupledL2Parameters {
-   def enableTagSRAMSplit = encTagBankBits % (tagSRAMSplit / tagBankSplit) == 0
-   def eccTagBankBits = encTagBankBits - tagBankBits
-   def enableDataECC = cacheParams.enableDataECC
--  def dataBankSplit = 4
--  def dataSRAMSplit = 8
--  def wordBits = 64
-+  def dataBankSplit = 1
-+  def dataSRAMSplit = 1
-+  def wordBits = 2
-   def bankWords = blockBits / wordBits / dataBankSplit
-   def dataBankBits = wordBits * bankWords
-   def encBankBits = cacheParams.dataCode.width(dataBankBits)
-@@ -270,7 +270,7 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
-         fifoId = None
-       )
-     },
--    beatBytes = 32,
-+    beatBytes = 1,
-     minLatency = 2,
-     responseFields = cacheParams.respField,
-     requestKeys = cacheParams.reqKey,
 @@ -364,7 +364,7 @@ abstract class CoupledL2Base(implicit p: Parameters) extends LazyModule with Has
        case EdgeOutKey => node.out.head._2
        case BankBitsKey => bankBits
@@ -79,27 +57,6 @@ index a2e0487..54f108f 100644
          }
          slice.io.in <> in
          if (enableHintGuidedGrant) {
-diff --git a/src/main/scala/coupledL2/DataStorage.scala b/src/main/scala/coupledL2/DataStorage.scala
-index 44507c2..1597760 100644
---- a/src/main/scala/coupledL2/DataStorage.scala
-+++ b/src/main/scala/coupledL2/DataStorage.scala
-@@ -65,12 +65,15 @@ class DataStorage(implicit p: Parameters) extends L2Module {
-     val wdata = Input(new DSBlock)
-   })
- 
-+  val test = new DSECCBankBlock
-+  println(s"----------------${test.data.getWidth}")
-+
-   // read data is set MultiCycle Path 2
-   val array = Module(new GatedSplittedSRAM(
-     gen = new DSECCBankBlock,
-     set = blocks,
-     way = 1,
--    dataSplit = dataSRAMSplit,
-+    dataSplit = 1,
-     singlePort = true,
-     readMCP2 = true,
-     hasMbist = p(L2ParamKey).hasMbist,
 diff --git a/src/main/scala/coupledL2/tl2tl/MainPipe.scala b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 index 605ca02..9d6636a 100644
 --- a/src/main/scala/coupledL2/tl2tl/MainPipe.scala

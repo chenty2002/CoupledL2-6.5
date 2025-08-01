@@ -65,17 +65,14 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
       name = s"L1d_$i",
-      ways = 2,
-      sets = 2,
-      blockBytes = 2,
-      channelBytes = TLChannelBeatBytes(1),
-      mshrs = 4,
+      ways = 8,
+      sets = 32,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       // echoField = Seq(DirtyField()),
       hartId = i,
       prefetch = Seq(InputAsPrefectchParam())
     )
-    case huancun.BankBitsKey => 0 // FV: 1 bank for L1s
+    case huancun.BankBitsKey => 0
     case LogUtilsOptionsKey => LogUtilsOptions(
       false,
       here(L2ParamKey).enablePerf,
@@ -94,11 +91,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
       name = s"l2$i",
-      ways = 2,
-      sets = 4,
-      blockBytes = 2,
-      channelBytes = TLChannelBeatBytes(1),
-      mshrs = 4,
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       echoField = Seq(DirtyField()),
       hartId = i,
@@ -122,18 +114,13 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     case HCCacheParamsKey => HCCacheParameters(
       name = "L3",
       level = 3,
-      ways = 2,
-      sets = 4,
-      blockBytes = 2,
-      channelBytes = TLChannelBeatBytes(1),
-      mshrs = 6,
       inclusive = false,
       clientCaches = (0 until nrL2).map(_ =>
         CacheParameters(
           name = s"l2",
-          sets = 4,
-          ways = 2 + 2,
-          blockGranularity = log2Ceil(4)
+          sets = 128,
+          ways = 4 + 2,
+          blockGranularity = log2Ceil(128)
         ),
       ),
       echoField = Seq(DirtyField()),
@@ -153,7 +140,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   })))
 
   val xbar = TLXbar()
-  val ram = LazyModule(new TLRAM(AddressSet(0, 0x1fL), beatBytes = 1))
+  val ram = LazyModule(new TLRAM(AddressSet(0, 0xff_ffffL), beatBytes = 32))
 
   l0_nodes.zip(l1d_nodes) map {
     case (l0, l1d) => l1d := l0
@@ -173,7 +160,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
   ram.node :=
     TLXbar() :=*
-      TLFragmenter(1, 2) :=*
+      TLFragmenter(32, 64) :=*
       TLCacheCork() :=*
       TLDelayer(delayFactor) :=*
       TLLogger(s"MEM_L3", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) :=*
