@@ -57,6 +57,77 @@ index a2e0487..d4f77f3 100644
          }
          slice.io.in <> in
          if (enableHintGuidedGrant) {
+diff --git a/src/main/scala/coupledL2/Directory.scala b/src/main/scala/coupledL2/Directory.scala
+index 67003d2..b846b74 100644
+--- a/src/main/scala/coupledL2/Directory.scala
++++ b/src/main/scala/coupledL2/Directory.scala
+@@ -138,37 +138,37 @@ class Directory(implicit p: Parameters) extends L2Module {
+   val metaWen = io.metaWReq.valid
+   val replacerWen = WireInit(false.B)
+ 
+-  // val tagArray  = Module(new SRAMTemplate(UInt(tagBits.W), sets, ways, singlePort = true))
++  val tagArray  = Module(new SRAMTemplate(UInt(tagBits.W), sets, ways, singlePort = true))
+   private val mbist = p(L2ParamKey).hasMbist
+   private val hasSramCtl = p(L2ParamKey).hasSramCtl
+-  val tagArray = if (enableTagECC) {
+-    Module(new SplittedSRAM(
+-      gen = UInt((tagBankSplit * encTagBankBits).W),
+-      set = sets,
+-      way = ways,
+-      waySplit = 2,
+-      dataSplit = if (enableTagSRAMSplit) {
+-        tagSRAMSplit
+-      } else {
+-        1
+-      },
+-      singlePort = true,
+-      readMCP2 = false,
+-      hasMbist = mbist,
+-      hasSramCtl = hasSramCtl
+-    ))
+-  } else {
+-    Module(new SplittedSRAM(
+-      gen = UInt(tagBits.W),
+-      set = sets,
+-      way = ways,
+-      waySplit = 2,
+-      singlePort = true,
+-      readMCP2 = false,
+-      hasMbist = mbist,
+-      hasSramCtl = hasSramCtl
+-    ))
+-  }
++  // val tagArray = if (enableTagECC) {
++  //   Module(new SplittedSRAM(
++  //     gen = UInt((tagBankSplit * encTagBankBits).W),
++  //     set = sets,
++  //     way = ways,
++  //     waySplit = 2,
++  //     dataSplit = if (enableTagSRAMSplit) {
++  //       tagSRAMSplit
++  //     } else {
++  //       1
++  //     },
++  //     singlePort = true,
++  //     readMCP2 = false,
++  //     hasMbist = mbist,
++  //     hasSramCtl = hasSramCtl
++  //   ))
++  // } else {
++  //   Module(new SplittedSRAM(
++  //     gen = UInt(tagBits.W),
++  //     set = sets,
++  //     way = ways,
++  //     waySplit = 2,
++  //     singlePort = true,
++  //     readMCP2 = false,
++  //     hasMbist = mbist,
++  //     hasSramCtl = hasSramCtl
++  //   ))
++  // }
+ 
+   val metaArray = Module(new SRAMTemplate(new MetaEntry, sets, ways, singlePort = true, hasMbist = mbist, hasSramCtl = hasSramCtl))
+ 
 diff --git a/src/main/scala/coupledL2/tl2tl/MainPipe.scala b/src/main/scala/coupledL2/tl2tl/MainPipe.scala
 index 605ca02..9d6636a 100644
 --- a/src/main/scala/coupledL2/tl2tl/MainPipe.scala
