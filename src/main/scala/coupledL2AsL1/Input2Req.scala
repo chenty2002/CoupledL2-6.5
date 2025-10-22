@@ -10,28 +10,47 @@ case class InputAsPrefectchParam() extends PrefetchParameters {
   override val inflightEntries: Int = 16
 }
 
+object Input2ReqPfSource {
+  val PrefetchRelease = PfSource.Stride.id.U
+  val PrefetchAcquire = PfSource.TP.id.U
+}
+
 class Input2Req(implicit p: Parameters) extends Prefetcher {
-  val io_inputAddr = IO(Input(UInt(fullAddressBits.W)))
-  val io_inputNeedT = IO(Input(new Bool()))
+  val io_inputAddr      = IO(Input(UInt(fullAddressBits.W)))
+  val io_inputNeedT     = IO(Input(Bool()))             // Acquire: need T; Release: 0->toN 1->toB
+  val io_requestType    = IO(Input(Bool()))             // 0: Acquire; 1: Release
+
+  val parsed = parseFullAddress(io_inputAddr)
 
   println("--------------------------------")
   println(" Modify Prefetcher as Input2Req ")
   println("--------------------------------")
 
   io.req.valid := true.B
-  io.req.bits.tag := parseFullAddress(io_inputAddr)._1
-  io.req.bits.set := parseFullAddress(io_inputAddr)._2
+  io.req.bits.tag := parsed._1
+  io.req.bits.set := parsed._2
   io.req.bits.vaddr.foreach(_ := 0.U)
   io.req.bits.needT := io_inputNeedT
   io.req.bits.source := {
     // for Core 0, it's 0,2,4...; for Core 1, it's 1,3,5...
     val reqSource = RegInit(cacheParams.hartId.U(sourceIdBits.W))
+    val releaseBit = (BigInt(1) << (sourceIdBits - 1)).U(sourceIdBits.W)
     when(io.req.valid && io.req.ready) {
       reqSource := reqSource + 2.U
     }
-    reqSource
+    Mux(io_requestType, reqSource | releaseBit, reqSource)
   }
-  io.req.bits.pfSource := PfSource.NoWhere.id.U
+
+  /*
+  val NoWhere = Value("NoWhere")
+  val SMS     = Value("SMS")
+  val BOP     = Value("BOP")
+  val PBOP     = Value("PBOP")
+  val Stream  = Value("Stream")
+  val Stride  = Value("Stride")
+  val TP      = Value("TP")
+  */
+  io.req.bits.pfSource := Mux(io_requestType, Input2ReqPfSource.PrefetchRelease, Input2ReqPfSource.PrefetchAcquire)
 
   // train, resp, tlb_req are not used
   io.train.ready := true.B

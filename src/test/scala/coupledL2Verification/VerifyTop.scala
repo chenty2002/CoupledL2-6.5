@@ -192,12 +192,14 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       // Input signals for formal verification
       val inputAddr = Input(UInt(ram.node.in.head._2.bundle.addressBits.W))
       val inputNeedT = Input(Bool())
+      val inputRequestType = Input(Bool()) // 0 Acquire, 1 Release
     }))
 
     coupledL2AsL1.zipWithIndex.foreach{
       case (node, i) =>
         node.module.io_inputAddr := io(i).inputAddr
         node.module.io_inputNeedT := io(i).inputNeedT
+        node.module.io_requestType := io(i).inputRequestType
     }
 
     coupledL2(0).module.slices.head match {
