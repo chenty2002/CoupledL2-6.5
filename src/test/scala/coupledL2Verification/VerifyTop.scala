@@ -165,6 +165,20 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       gen.module.io_in_param := io(i).reqParam
     }
 
+    // Assumptions to ensure release requests are at least 1/4 of total requests
+    val acquireCounters = (0 until nrL2).map(_ => RegInit(0.U(32.W)))
+    val releaseCounters = (0 until nrL2).map(_ => RegInit(0.U(32.W)))
+    for (i <- 0 until nrL2) {
+      when(io(i).reqIsAcquire) {
+        acquireCounters(i) := acquireCounters(i) + 1.U
+      }.otherwise {
+        releaseCounters(i) := releaseCounters(i) + 1.U
+      }
+      when(acquireCounters(i) > 0.U) {
+        assume(releaseCounters(i) * 3.U >= acquireCounters(i))
+      }
+    }
+
     coupledL2(0).module.slices.head match {
       case tlSlice: L2Slice =>
         val dir_resetFinish = BoringUtils.bore(tlSlice.directory.resetFinish)

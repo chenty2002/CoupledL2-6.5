@@ -145,6 +145,9 @@ class TLMessageGenerator(params: MessageGeneratorParam)(implicit p: Parameters) 
       releaseState := releaseEnqueue
     }
 
+    // Assume: Release requests must hit a valid cache line
+    assume(io.in_isAcquire || takeLineHit)
+
     // Optimized: use OHToUInt directly instead of Mux1H
     val sendAcquireVec = VecInit((0 until numSources).map(i => entryActive(i) && entryState(i) === entrySendAcquire))
     val sendAcquireMask = sendAcquireVec.asUInt
