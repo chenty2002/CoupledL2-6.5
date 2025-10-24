@@ -45,11 +45,11 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val msgGens = (0 until nrL2).map { i =>
     val genParams = MessageGeneratorParam(
       name = s"L1_$i",
-      sets = 4,
-      ways = 4,
-      blockBytes = cacheParams.blockBytes,
-      channelBytes = TLChannelBeatBytes(cacheParams.blockBytes),
-      sourceIdRange = IdRange(0, 8),
+      sets = 2,
+      ways = 2,
+      blockBytes = 2,
+      channelBytes = TLChannelBeatBytes(1),
+      sourceIdRange = IdRange(0, 16),
       reqField = Seq(AliasField(2)),
       respKey = cacheParams.respKey
     )
@@ -60,6 +60,11 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
       name = s"l2$i",
+      sets = 4,
+      ways = 2,
+      blockBytes = 2,
+      mshrs = 4,
+      channelBytes = TLChannelBeatBytes(1),
       clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
       echoField = Seq(DirtyField()),
       hartId = i,
@@ -84,12 +89,17 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       name = "L3",
       level = 3,
       inclusive = false,
+      sets = 4,
+      ways = 2,
+      channelBytes = TLChannelBeatBytes(1),
+      blockBytes = 2,
+      mshrs = 6,
       clientCaches = (0 until nrL2).map(_ =>
         CacheParameters(
           name = s"l2",
-          sets = 128,
-          ways = 4 + 2,
-          blockGranularity = log2Ceil(128)
+          sets = 4,
+          ways = 2 + 2,
+          blockGranularity = log2Ceil(4)
         ),
       ),
       echoField = Seq(DirtyField()),
@@ -109,7 +119,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   })))
 
   val xbar = TLXbar()
-  val ram = LazyModule(new TLRAM(AddressSet(0, 0xff_ffffL), beatBytes = 32))
+  val ram = LazyModule(new TLRAM(AddressSet(0, 0x1fL), beatBytes = 1))
 
   l1d_nodes.zip(l2_nodes).zipWithIndex foreach { case ((l1d, l2), i) =>
     l2 := TLLogger(s"L2_L1[${i}].C[0]", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) := TLBuffer() := l1d
@@ -123,7 +133,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
   ram.node :=
     TLXbar() :=*
-      TLFragmenter(32, 64) :=*
+      TLFragmenter(1, 2) :=*
       TLCacheCork() :=*
       TLDelayer(delayFactor) :=*
       TLLogger(s"MEM_L3", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) :=*
