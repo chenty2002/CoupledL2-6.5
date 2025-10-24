@@ -7,13 +7,13 @@ import chisel3.util.experimental.BoringUtils
 import chiselFv._
 import coupledL2._
 import coupledL2.tl2tl.{Slice => L2Slice, _}
-import coupledL2AsL1._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tile.MaxHartIdBits
 import freechips.rocketchip.tilelink._
 import huancun._
 import org.chipsalliance.cde.config._
 import utility._
+import messageGenerator.{MessageGeneratorParam, TLMessageGenerator}
 
 import java.io.File
 
@@ -41,52 +41,21 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
 
   val nrL2 = 2
 
-  def createClientNode(name: String, sources: Int) = {
-    val masterNode = TLClientNode(Seq(
-      TLMasterPortParameters.v2(
-        masters = Seq(
-          TLMasterParameters.v1(
-            name = name,
-            sourceId = IdRange(0, sources),
-            supportsProbe = TransferSizes(cacheParams.blockBytes)
-          )
-        ),
-        channelBytes = TLChannelBeatBytes(cacheParams.blockBytes),
-        minLatency = 1,
-        echoFields = Nil,
-        requestFields = Seq(AliasField(2)),
-        responseKeys = cacheParams.respKey
-      )
-    ))
-    masterNode
+  // Replace previous TLCoupledL2AsL1 (complex prefetch based) with simplified TLMessageGenerator
+  val msgGens = (0 until nrL2).map { i =>
+    val genParams = MessageGeneratorParam(
+      name = s"L1_$i",
+      sets = 4,
+      ways = 4,
+      blockBytes = cacheParams.blockBytes,
+      channelBytes = TLChannelBeatBytes(cacheParams.blockBytes),
+      sourceIdRange = IdRange(0, 8),
+      reqField = Seq(AliasField(2)),
+      respKey = cacheParams.respKey
+    )
+    LazyModule(new TLMessageGenerator(genParams))
   }
-  val l0_nodes = (0 until nrL2).map(i => createClientNode(s"L0_$i", 32))
-
-  val coupledL2AsL1 = (0 until nrL2).map(i => LazyModule(new TLCoupledL2AsL1()(baseConfig(1).alter((_, here, _) => {
-    case L2ParamKey => L2Param(
-      name = s"L1d_$i",
-      ways = 8,
-      sets = 32,
-      clientCaches = Seq(L1Param(aliasBitsOpt = Some(2))),
-      // echoField = Seq(DirtyField()),
-      hartId = i,
-      prefetch = Seq(InputAsPrefectchParam())
-    )
-    case huancun.BankBitsKey => 0
-    case LogUtilsOptionsKey => LogUtilsOptions(
-      false,
-      here(L2ParamKey).enablePerf,
-      here(L2ParamKey).FPGAPlatform
-    )
-    case PerfCounterOptionsKey => PerfCounterOptions(
-      here(L2ParamKey).enablePerf && !here(L2ParamKey).FPGAPlatform,
-      here(L2ParamKey).enableRollingDB && !here(L2ParamKey).FPGAPlatform,
-      XSPerfLevel.withName("VERBOSE"),
-      i
-    )
-  })))
-  )
-  val l1d_nodes = coupledL2AsL1.map(_.node)
+  val l1d_nodes = msgGens.map(_.node)
 
   val coupledL2 = (0 until nrL2).map(i => LazyModule(new TL2TLCoupledL2()(baseConfig(1).alter((_, here, _) => {
     case L2ParamKey => L2Param(
@@ -142,14 +111,8 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val xbar = TLXbar()
   val ram = LazyModule(new TLRAM(AddressSet(0, 0xff_ffffL), beatBytes = 32))
 
-  l0_nodes.zip(l1d_nodes) map {
-    case (l0, l1d) => l1d := l0
-  }
-
-  l1d_nodes.zip(l2_nodes).zipWithIndex map {
-    case ((l1d, l2), i) => l2 := 
-        TLLogger(s"L2_L1[${i}].C[0]", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) := 
-        TLBuffer() := l1d
+  l1d_nodes.zip(l2_nodes).zipWithIndex foreach { case ((l1d, l2), i) =>
+    l2 := TLLogger(s"L2_L1[${i}].C[0]", !cacheParams.FPGAPlatform && cacheParams.enableTLLog) := TLBuffer() := l1d
   }
 
   l2_nodes.zipWithIndex map {
@@ -167,15 +130,6 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       l3.node :=* xbar
 
   lazy val module = new LazyModuleImp(this) with Formal {
-    coupledL2AsL1.foreach {
-      l1 => {
-        l1.module.io.debugTopDown <> DontCare
-        l1.module.io.hartId := DontCare
-        l1.module.io.pfCtrlFromCore := DontCare
-        l1.module.io.l2_tlb_req <> DontCare
-      }
-    }
-
     coupledL2.foreach {
       l2 => {
         l2.module.io.debugTopDown <> DontCare
@@ -189,15 +143,16 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     verify_timer := verify_timer + 1.U
 
     val io = IO(Vec(nrL2, new Bundle() {
-      // Input signals for formal verification
-      val inputAddr = Input(UInt(ram.node.in.head._2.bundle.addressBits.W))
-      val inputNeedT = Input(Bool())
+      // External control to drive simplified generator
+      val reqAddr = Input(UInt(ram.node.in.head._2.bundle.addressBits.W))
+      val reqIsAcquire = Input(Bool())
+      val reqParam = Input(Bool())
     }))
 
-    coupledL2AsL1.zipWithIndex.foreach{
-      case (node, i) =>
-        node.module.io_inputAddr := io(i).inputAddr
-        node.module.io_inputNeedT := io(i).inputNeedT
+    msgGens.zipWithIndex.foreach { case (gen, i) =>
+      gen.module.io_in_addr := io(i).reqAddr
+      gen.module.io_in_isAcquire := io(i).reqIsAcquire
+      gen.module.io_in_param := io(i).reqParam
     }
 
     coupledL2(0).module.slices.head match {
@@ -207,45 +162,17 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
     }
 
     val timer = 500
-    val sw_verification_flag = 1
     coupledL2.foreach { l2 =>
       l2.module.slices.head match {
         case tlSlice: L2Slice =>
-          if(sw_verification_flag == 0) {
-//            val s_acquire = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_acquire)
-//            astRelaxedLiveness(!s_acquire, s_acquire, timer)
-//            val s_rprobe = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_rprobe)
-//            astRelaxedLiveness(!s_rprobe, s_rprobe, timer)
-//            val s_pprobe = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_pprobe)
-//            astRelaxedLiveness(!s_pprobe, s_pprobe, timer)
-//            val s_release = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_release)
-//            astRelaxedLiveness(!s_release, s_release, timer)
-//            val s_probeack = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_probeack)
-//            astRelaxedLiveness(!s_probeack, s_probeack, timer)
-//            val s_refill = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_refill)
-//            astRelaxedLiveness(!s_refill, s_refill, timer)
-//            val s_retry = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.s_retry)
-//            astRelaxedLiveness(!s_retry, s_retry, timer)
-          } else {
-//            val w_rprobeackfirst = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_rprobeackfirst)
-//            astRelaxedLiveness(!w_rprobeackfirst, w_rprobeackfirst, timer)
-            val w_rprobeacklast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_rprobeacklast)
-            astRelaxedLiveness(!w_rprobeacklast, w_rprobeacklast, timer)
-//            val w_pprobeackfirst = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_pprobeackfirst)
-//            astRelaxedLiveness(!w_pprobeackfirst, w_pprobeackfirst, timer)
-            val w_pprobeacklast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_pprobeacklast)
-            astRelaxedLiveness(!w_pprobeacklast, w_pprobeacklast, timer)
-//            val w_grantfirst = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_grantfirst)
-//            astRelaxedLiveness(!w_grantfirst, w_grantfirst, timer)
-            val w_grantlast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_grantlast)
-            astRelaxedLiveness(!w_grantlast, w_grantlast, timer)
-//            val w_grant = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_grant)
-//            astRelaxedLiveness(!w_grant, w_grant, timer)
-            val w_releaseack = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_releaseack)
-            astRelaxedLiveness(!w_releaseack, w_releaseack, timer)
-//            val w_replResp = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_replResp)
-//            astRelaxedLiveness(!w_replResp, w_replResp, timer)
-          }
+          val w_rprobeacklast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_rprobeacklast)
+          astRelaxedLiveness(!w_rprobeacklast, w_rprobeacklast, timer)
+          val w_pprobeacklast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_pprobeacklast)
+          astRelaxedLiveness(!w_pprobeacklast, w_pprobeacklast, timer)
+          val w_grantlast = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_grantlast)
+          astRelaxedLiveness(!w_grantlast, w_grantlast, timer)
+          val w_releaseack = BoringUtils.bore(tlSlice.mshrCtl.mshrs.head.state.w_releaseack)
+          astRelaxedLiveness(!w_releaseack, w_releaseack, timer)
       }
     }
   }
@@ -268,7 +195,7 @@ object VerifyTop extends App {
   }
   FileRegisters.writeOutputFile(
     "Verilog",
-    "VerifyTop_w.sv",
+    "VerifyTop.sv",
     ChiselStage.emitSystemVerilog(top.module,
                                   args = Array("--warn-conf", "id=4:s"),
                                   firtoolOpts = Array("--disable-annotation-unknown"))
