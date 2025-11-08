@@ -15,9 +15,14 @@ object Input2ReqPfSource {
   val PrefetchAcquire = PfSource.TP.id.U
 }
 
+object ActiveReleaseParam {
+  val toN = 0.U(1.W)
+  val toB = 1.U(1.W)
+}
+
 class Input2Req(implicit p: Parameters) extends Prefetcher {
   val io_inputAddr      = IO(Input(UInt(fullAddressBits.W)))
-  val io_inputNeedT     = IO(Input(Bool()))             // Acquire: need T; Release: 0->toN 1->toB
+  val io_inputNeedT     = IO(Input(Bool()))             // Acquire: need T; Release: 0->TtoN 1->TtoB
   val io_requestType    = IO(Input(Bool()))             // 0: Acquire; 1: Release
 
   val parsed = parseFullAddress(io_inputAddr)
