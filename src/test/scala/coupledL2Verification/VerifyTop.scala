@@ -40,6 +40,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
   val cacheParams = p(L2ParamKey)
 
   val nrL2 = 2
+  val msgGenBlockBytes = 2  // MessageGenerator的blockBytes参数
 
   // Replace previous TLCoupledL2AsL1 (complex prefetch based) with simplified TLMessageGenerator
   val msgGens = (0 until nrL2).map { i =>
@@ -47,7 +48,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       name = s"L1_$i",
       sets = 2,
       ways = 2,
-      blockBytes = 2,
+      blockBytes = msgGenBlockBytes,
       channelBytes = TLChannelBeatBytes(1),
       sourceIdRange = IdRange(0, 16),
       reqField = Seq(AliasField(2)),
@@ -157,12 +158,14 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
       val reqAddr = Input(UInt(ram.node.in.head._2.bundle.addressBits.W))
       val reqIsAcquire = Input(Bool())
       val reqParam = Input(Bool())
+      val reqData = Input(UInt((msgGenBlockBytes * 8).W))  // blockBytes * 8 bits
     }))
 
     msgGens.zipWithIndex.foreach { case (gen, i) =>
       gen.module.io_in_addr := io(i).reqAddr
       gen.module.io_in_isAcquire := io(i).reqIsAcquire
       gen.module.io_in_param := io(i).reqParam
+      gen.module.io_in_data := io(i).reqData
     }
 
     // Assumptions to ensure release requests are at least 1/4 of total requests
@@ -185,7 +188,7 @@ class VerifyTop()(implicit p: Parameters) extends LazyModule {
         assume(verify_timer < 200.U || dir_resetFinish)
     }
 
-    val timer = 500
+    val timer = 1000
     coupledL2.foreach { l2 =>
       l2.module.slices.head match {
         case tlSlice: L2Slice =>
