@@ -41,7 +41,16 @@ object AutoVerify extends App {
     )
   })
 
-  val suffix = "latest"
+  val suffix_path = Map(
+    "deadlock" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6.6-small",
+    "l1l2mutual" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest-release/l1l2mutual",
+    "l2l3mutual" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest-release/l2l3mutual",
+    "mutual" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest-release/mutual",
+    "inclusive" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest-release/inclusive",
+    "consist" -> "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest-release/consistency"
+  )
+
+  val suffix = "l1l2mutual"
   val path = "/home/lyj238/VerifyL2"
   val top = DisableMonitors(p => LazyModule(new VerifyTop()(p)))(config)
 
@@ -57,14 +66,7 @@ object AutoVerify extends App {
   modifyPy(filename)
   val py = "python set_verify.py".!
   println(s"Verilog File Name: ${filename}")
-  val server_addr = "lyj238@192.168.20.110"
-  val server_path = "/home/lyj238/VerifyL2/Verilog_code/Chisel6.6/chisel6-large-latest/w"
-  val scp_cmd = s"scp ${filename} ${server_addr}:${server_path}/${filename}".!
-  if(scp_cmd == 0) {
-    println("scp success")
-  } else {
-    println("scp failure")
-  }
-  //  val rm = s"rm -f ${path}/${suffix}/${filename}".!
-  //  val cpjg = s"cp ${filename} ${path}/${suffix}".!
+  val server_path = suffix_path(suffix)
+  val rm = s"rm -f ${server_path}/${filename}".!
+  val cpjg = s"cp ${filename} ${server_path}/${filename}".!
 }

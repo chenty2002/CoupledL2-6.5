@@ -1,0 +1,210 @@
+diff --git a/src/main/scala/huancun/DataStorage.scala b/src/main/scala/huancun/DataStorage.scala
+index 14d264e..e45d05b 100644
+--- a/src/main/scala/huancun/DataStorage.scala
++++ b/src/main/scala/huancun/DataStorage.scala
+@@ -41,9 +41,9 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
+   })
+ 
+   /* Define some internal parameters */
+-  val nrStacks = 2
++  val nrStacks = 1
+   val stackBits = log2Ceil(nrStacks)
+-  val bankBytes = 8
++  val bankBytes = 1
+   val rowBytes = nrStacks * beatBytes
+   val nrRows = sizeBytes / rowBytes
+   val nrBanks = rowBytes / bankBytes
+@@ -301,3 +301,38 @@ class DataSel(inNum: Int, outNum: Int, width: Int, eccBits: Int)(implicit p: Par
+   }
+ 
+ }
++
++class DataStorageSyncWrite(implicit p: Parameters) extends HuanCunBundle {
++  val addr = new DSAddress
++  val data = new DSData
++}
++
++class DataStorageSync(implicit p: Parameters) extends HuanCunModule {
++  private val beatsPerBlock = blockBytes / beatBytes
++  private val dataBits = beatBytes * 8
++  private val sets = cacheParams.sets
++  private val ways = cacheParams.ways
++
++  val io = IO(new Bundle {
++    val sinkD = Input(Valid(new DataStorageSyncWrite))
++    val sourceD = Input(Valid(new DataStorageSyncWrite))
++    val sinkC = Input(Valid(new DataStorageSyncWrite))
++    val dataArray = Output(Vec(sets, Vec(ways, Vec(beatsPerBlock, UInt(dataBits.W)))))
++  })
++
++  private def beatInit() = VecInit(Seq.fill(beatsPerBlock)(0.U(dataBits.W)))
++  private def wayInit() = VecInit(Seq.fill(ways)(beatInit()))
++  private val mirror = RegInit(VecInit(Seq.fill(sets)(wayInit())))
++
++  private def capture(port: Valid[DataStorageSyncWrite]): Unit = {
++    when(port.valid && port.bits.addr.write && !port.bits.addr.noop) {
++      mirror(port.bits.addr.set)(port.bits.addr.way)(port.bits.addr.beat) := port.bits.data.data
++    }
++  }
++
++  capture(io.sinkD)
++  capture(io.sourceD)
++  capture(io.sinkC)
++
++  io.dataArray := mirror
++}
+diff --git a/src/main/scala/huancun/HCCacheParameters.scala b/src/main/scala/huancun/HCCacheParameters.scala
+index 98026d1..0e95a7b 100644
+--- a/src/main/scala/huancun/HCCacheParameters.scala
++++ b/src/main/scala/huancun/HCCacheParameters.scala
+@@ -125,7 +125,7 @@ case class HCCacheParameters
+ ) {
+   require(ways > 0)
+   require(sets > 0)
+-  require(channelBytes.d.get >= 8)
++  // require(channelBytes.d.get >= 8)
+   require(dirReadPorts == 1, "now we only use 1 read port")
+   if (!inclusive) {
+     require(clientCaches.nonEmpty, "Non-inclusive cache need to know client cache information")
+diff --git a/src/main/scala/huancun/HuanCun.scala b/src/main/scala/huancun/HuanCun.scala
+index 123c369..5f740d7 100644
+--- a/src/main/scala/huancun/HuanCun.scala
++++ b/src/main/scala/huancun/HuanCun.scala
+@@ -221,7 +221,7 @@ class HuanCun(implicit p: Parameters) extends LazyModule with HasHuanCunParamete
+             fifoId = None
+           )
+         },
+-        beatBytes = 32,
++        beatBytes = 1,
+         minLatency = 2,
+         responseFields = cacheParams.respField,
+         requestKeys = cacheParams.reqKey,
+@@ -361,7 +361,7 @@ class HuanCun(implicit p: Parameters) extends LazyModule with HasHuanCunParamete
+ 
+     val slices = wrapper.node.in.zip(wrapper.node.out).zipWithIndex.map {
+       case (((in, edgeIn), (out, edgeOut)), i) =>
+-        require(in.params.dataBits == out.params.dataBits)
++        // require(in.params.dataBits == out.params.dataBits)
+         val rst = if(cacheParams.level == 3 && !cacheParams.simulation) {
+           ResetGen()
+         } else reset
+diff --git a/src/main/scala/huancun/Slice.scala b/src/main/scala/huancun/Slice.scala
+index 8f9de39..a1b3d96 100644
+--- a/src/main/scala/huancun/Slice.scala
++++ b/src/main/scala/huancun/Slice.scala
+@@ -25,7 +25,7 @@ import chisel3._
+ import chisel3.util._
+ import freechips.rocketchip.tilelink._
+ import freechips.rocketchip.util.leftOR
+-import huancun.noninclusive.{MSHR, ProbeHelper, SliceCtrl, DirResult}
++import huancun.noninclusive.{MSHR, ProbeHelper, SliceCtrl, DirResult, DirectorySync}
+ import huancun.prefetch._
+ import utility._
+ 
+@@ -103,6 +103,7 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
+   val ms_c = ms.last
+ 
+   val dataStorage = Module(new DataStorage())
++  val dataStorageSync = if (!cacheParams.inclusive) Some(Module(new DataStorageSync())) else None
+ 
+   dataStorage.io.sinkD_wdata := sinkD.io.bs_wdata
+   dataStorage.io.sinkD_waddr <> sinkD.io.bs_waddr
+@@ -123,6 +124,18 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
+     )
+   } else sinkC.io.bs_wdata)
+ 
++  dataStorageSync.foreach { sync =>
++    sync.io.sinkD.valid := sinkD.io.bs_waddr.fire
++    sync.io.sinkD.bits.addr := sinkD.io.bs_waddr.bits
++    sync.io.sinkD.bits.data := sinkD.io.bs_wdata
++    sync.io.sourceD.valid := sourceD.io.bs_waddr.fire
++    sync.io.sourceD.bits.addr := sourceD.io.bs_waddr.bits
++    sync.io.sourceD.bits.data := sourceD.io.bs_wdata
++    sync.io.sinkC.valid := sinkC.io.bs_waddr.fire
++    sync.io.sinkC.bits.addr := sinkC.io.bs_waddr.bits
++    sync.io.sinkC.bits.data := sinkC.io.bs_wdata
++  }
++
+ 
+   val mshrAlloc = Module(new MSHRAlloc)
+   val a_req_buffer = Module(new RequestBuffer(entries = 4))
+@@ -382,12 +395,26 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
+     if (cacheParams.inclusive) new inclusive.Directory()
+     else new noninclusive.Directory()
+   })
++  val directorySync = if (!cacheParams.inclusive) Some(Module(new DirectorySync())) else None
+   directory.io.read <> ctrl_arb(mshrAlloc.io.dirRead, ctrl.map(_.io.dir_read))
+   ctrl.map(c => {
+     c.io.dir_result.valid := directory.io.result.valid && directory.io.result.bits.idOH(1, 0) === "b11".U
+     c.io.dir_result.bits := directory.io.result.bits
+   })
+ 
++  (directorySync, directory) match {
++    case (Some(sync), dir: noninclusive.Directory) =>
++      sync.io.selfDirW.valid := dir.io.dirWReq.fire
++      sync.io.selfDirW.bits := dir.io.dirWReq.bits
++      sync.io.selfTagW.valid := dir.io.tagWReq.fire
++      sync.io.selfTagW.bits := dir.io.tagWReq.bits
++      sync.io.clientDirW.valid := dir.io.clientDirWReq.fire
++      sync.io.clientDirW.bits := dir.io.clientDirWReq.bits
++      sync.io.clientTagW.valid := dir.io.clientTagWreq.fire
++      sync.io.clientTagW.bits := dir.io.clientTagWreq.bits
++    case _ => ()
++  }
++
+   // Send tasks
+ 
+   def is_blocked(idx: Int): Bool = {
+diff --git a/src/main/scala/huancun/noninclusive/Directory.scala b/src/main/scala/huancun/noninclusive/Directory.scala
+index 95f3120..4d09ce8 100644
+--- a/src/main/scala/huancun/noninclusive/Directory.scala
++++ b/src/main/scala/huancun/noninclusive/Directory.scala
+@@ -350,3 +350,48 @@ class Directory(implicit p: Parameters)
+     perf_out := RegNext(perf)
+   }
+ }
++
++class DirectorySync(implicit p: Parameters)
++    extends HuanCunModule
++    with HasClientInfo {
++  private val sets = cacheParams.sets
++  private val ways = cacheParams.ways
++
++  val io = IO(new Bundle {
++    val selfDirW = Input(Valid(new SelfDirWrite))
++    val selfTagW = Input(Valid(new SelfTagWrite))
++    val clientDirW = Input(Valid(new ClientDirWrite))
++    val clientTagW = Input(Valid(new ClientTagWrite))
++    val selfDirArray = Output(Vec(sets, Vec(ways, new SelfDirEntry)))
++    val selfTagArray = Output(Vec(sets, Vec(ways, UInt(tagBits.W))))
++    val clientDirArray = Output(Vec(clientSets, Vec(clientWays, Vec(clientBits, new ClientDirEntry))))
++    val clientTagArray = Output(Vec(clientSets, Vec(clientWays, UInt(clientTagBits.W))))
++  })
++
++  private def selfDirInit() = 0.U.asTypeOf(new SelfDirEntry)
++  private def clientDirInit() = 0.U.asTypeOf(new ClientDirEntry)
++  private def clientVecInit() = VecInit(Seq.fill(clientBits)(clientDirInit()))
++
++  private val selfDirMirror = RegInit(VecInit(Seq.fill(sets)(VecInit(Seq.fill(ways)(selfDirInit())))))
++  private val selfTagMirror = RegInit(VecInit(Seq.fill(sets)(VecInit(Seq.fill(ways)(0.U(tagBits.W))))))
++  private val clientDirMirror = RegInit(VecInit(Seq.fill(clientSets)(VecInit(Seq.fill(clientWays)(clientVecInit())))))
++  private val clientTagMirror = RegInit(VecInit(Seq.fill(clientSets)(VecInit(Seq.fill(clientWays)(0.U(clientTagBits.W))))))
++
++  when(io.selfDirW.valid) {
++    selfDirMirror(io.selfDirW.bits.set)(io.selfDirW.bits.way) := io.selfDirW.bits.data
++  }
++  when(io.selfTagW.valid) {
++    selfTagMirror(io.selfTagW.bits.set)(io.selfTagW.bits.way) := io.selfTagW.bits.tag
++  }
++  when(io.clientDirW.valid) {
++    clientDirMirror(io.clientDirW.bits.set)(io.clientDirW.bits.way) := io.clientDirW.bits.data
++  }
++  when(io.clientTagW.valid) {
++    clientTagMirror(io.clientTagW.bits.set)(io.clientTagW.bits.way) := io.clientTagW.bits.tag
++  }
++
++  io.selfDirArray := selfDirMirror
++  io.selfTagArray := selfTagMirror
++  io.clientDirArray := clientDirMirror
++  io.clientTagArray := clientTagMirror
++}

@@ -28,17 +28,30 @@ class L1MainPipe(implicit p: Parameters) extends MainPipe {
         MetaEntry()
     )
 
-    val need_data_active_release = task_s3.valid && req_s3.fromA && dirResult_s3.hit &&
+    val need_data_active_release = task_s3.valid && req_s3.fromA && dirResult_s3.hit && !req_s3.mshrTask &&
+        !(meta_s3.state === BRANCH && task_s3.bits.param === ActiveReleaseParam.toB) &&
         task_s3.bits.reqSource === Input2ReqPfSource.PrefetchRelease
+    val need_mshr_s3_active_release = need_data_active_release
+    val need_mshr_s3_l1 = need_mshr_s3 || need_mshr_s3_active_release
     io.toDS.req_s3.valid := task_s3.valid && (ren || wen || need_data_active_release)
 
     val metaW_valid_s3_flush = need_data_active_release
     when(metaW_valid_s3_flush) {
         sink_resp_s3.bits.opcode := ReleaseData
-        sink_resp_s3.bits.param  := Mux(task_s3.bits.param === PREFETCH_WRITE, toB, toN)
+        sink_resp_s3.bits.param  := Mux(task_s3.bits.param === ActiveReleaseParam.toN, 
+            // param == 0(releaseToN) && state == T  -> TtoN
+            // param == 0(releaseToN) && state == B  -> BtoN
+            Mux(isT(meta_s3.state), TtoN, BtoN),
+            // param == 1(releaseToB) && state == T  -> TtoB
+            TtoB
+        )
     }
 
-    io.toMSHRCtl.mshr_alloc_s3.valid := task_s3.valid && !mshr_req_s3 && need_mshr_s3 && !need_data_active_release
+    io.toMSHRCtl.mshr_alloc_s3.valid := task_s3.valid && !mshr_req_s3 && need_mshr_s3_l1
+    when (need_mshr_s3_active_release) {
+        alloc_state.elements.foreach(_._2 := true.B)
+        alloc_state.w_releaseack := false.B
+    }
     
     io.metaWReq.valid := !resetFinish || task_s3.valid && (metaW_valid_s3_a || metaW_valid_s3_b || metaW_valid_s3_c || metaW_valid_s3_mshr || metaW_valid_s3_flush)
     io.metaWReq.bits.wmeta := Mux(
@@ -50,9 +63,16 @@ class L1MainPipe(implicit p: Parameters) extends MainPipe {
         MetaEntry()
     )
 
-    val pendingC_pf = task_s4.valid && task_s4.bits.reqSource === Input2ReqPfSource.PrefetchRelease
+    val pendingC_pf = task_s4.valid && RegNext(need_data_active_release)
     when(task_s4.valid && !req_drop_s4) {
         isC_s5 := isC_s4 || pendingC_s4 || pendingC_pf
     }
     io.status_vec_toC(1).valid := task_s4.valid && (isC_s4 || pendingC_s4 || pendingC_pf)
+
+    // 让 active release 进 MSHR
+    // 1. 修改 alloc 条件
+    // 2. 在 alloc_state 中设置 mshr 状态机，仅设置 s_release 和 w_releaseAck 即可
+    
+
+
 }
